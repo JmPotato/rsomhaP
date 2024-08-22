@@ -34,7 +34,7 @@ pub async fn handler_page(
     let total_article_count = Article::get_total_count(&state.db).await as u32;
     let article_per_page = state.config.article_per_page();
     let max_page = (total_article_count as f32 / article_per_page as f32).ceil() as u32;
-    if page_num as u32 > max_page {
+    if max_page != 0 && page_num as u32 > max_page {
         return handler_404(State(state)).await;
     }
     let articles = Article::get_on_page(&state.db, page_num as u32, article_per_page).await;

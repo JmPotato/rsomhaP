@@ -2,6 +2,9 @@
 
 {% block content %}
 <ol id="posts">
+  {% if total_article_count == 0  %} 
+  <h1>Oops, no articles yet...</h1>
+  {% endif %}
   {% for article in articles %}
   <li>
     <span class="date">{{ article.created_at[:10] }}</span>
