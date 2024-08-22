@@ -10,7 +10,7 @@ rsomhaP is still a simple ready-to-use blog engine inheriting a lot from its pre
 
 - Markdown friendly.
 - Monolithic web application without frontend and backend separation.
-- The same concise and readable HTML and CSS styles.
+- Concise and readable HTML/CSS styles.
 
 But also introduces some new features:
 
