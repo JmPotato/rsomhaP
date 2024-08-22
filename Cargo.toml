@@ -1,0 +1,29 @@
+[package]
+name = "rsomhap"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+axum-login = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+comrak = { version = "0.27", features = ["syntect"] }
+minijinja = { version = "2.1", features = ["loader"] }
+password-auth = "1.0.0"
+serde = { version = "1.0", features = ["derive"] }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "mysql",
+    "chrono",
+    "tls-rustls",
+] }
+thiserror = "1.0.63"
+tokio = { version = "1.0", features = ["full"] }
+toml = "0.8"
+tower-http = { version = "0.5", features = ["fs", "trace"] }
+tower-sessions = { version = "0.12", default-features = false, features = [
+    "signed",
+] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+url = "2.5"

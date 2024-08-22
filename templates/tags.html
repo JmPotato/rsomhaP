@@ -1,0 +1,9 @@
+{% extends 'layout.html' %}
+
+{% block title %} | Tags{% endblock %}
+
+{% block content %}
+{% for tag in tags %}
+<a href="/tag/{{ tag.name }}" style="padding:5px;">{{ tag.name }}</a>
+{% endfor %}
+{% endblock %}

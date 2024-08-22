@@ -1,0 +1,56 @@
+[deploy]
+host = "0.0.0.0"
+port = 5299
+
+[meta]
+blog_name = "rsomhaP"
+blog_url = "http://0.0.0.0:5299"
+blog_author = "JmPotato"
+# You can customize the about page URL.
+# about_url = "https://about.ipotato.me"
+
+[admin]
+# The admin username used to login to the admin page.
+# Its password is the same as the username, so please change it after deploying ASAP.
+username = "admin"
+# The number of inactive days that the admin session will be expired.
+inactive_expiry_days = 30
+
+[style]
+# Article per page to display in the home page.
+article_per_page = 15
+# Supported code syntax highlight themes:
+# - `base16-ocean.dark`,`base16-eighties.dark`,`base16-mocha.dark`,`base16-ocean.light`
+# - `InspiredGitHub` from [here](https://github.com/sethlopezme/InspiredGitHub.tmtheme)
+# - `Solarized (dark)` and `Solarized (light)`
+code_syntax_highlight_theme = "base16-ocean.light"
+
+[mysql]
+# If `connection_url` is set, other connection-related configs will be ignored.
+# connection_url = "mysql://root:password@127.0.0.1:4000/rsomhaP"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "rsomhaP"
+
+[giscus]
+enable = false
+# https://giscus.app
+category = ""
+category_id = ""
+emit_metadata = "0"
+input_position = "top"
+lang = "en"
+loading = ""
+mapping = "og:title"
+reactions_enabled = "1"
+repo = ""
+repo_id = ""
+theme = "light"
+
+[analytics]
+# https://analytics.google.com
+# google = "G-XXXXXXXXXX"
+# https://plausible.io
+# plausible = "data.domain"

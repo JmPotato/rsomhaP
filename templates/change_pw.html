@@ -1,0 +1,55 @@
+{% extends 'layout.html' %}
+
+{% block title %} | Change Password{% endblock %}
+
+{% block head %}
+<script>
+    function check() {
+        const oldPassword = document.getElementById("old_password").value;
+        const newPassword = document.getElementById("new_password").value;
+        const confirmPassword = document.getElementById("confirm_password").value;
+
+        if (newPassword === oldPassword) {
+            alert("New password is the same as the old one");
+            return;
+        }
+
+        if (newPassword !== confirmPassword) {
+            alert("Confirm new password is different from the new password");
+            // clear the new password and confirm new password fields.
+            document.getElementById("new_password").value = "";
+            document.getElementById("confirm_password").value = "";
+            return;
+        }
+
+        document.getElementById("change_pw").submit();
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="post">
+    <h1 id="title">Login</h1>
+    <article>
+        {% if message %}
+            <div class="item"><center><p>{{ message }}</p></center></div>
+        {% endif %}
+        <div class="item">
+            <form action="#" method="post" id="change_pw">
+                <div class="input">
+                    <label for="old_password">Old Password</label><input id="old_password" name="old_password" type="password">
+                </div>
+                <div class="input">
+                    <label for="new_password">New Password</label><input id="new_password" name="new_password" type="password">
+                </div>
+                <div class="input">
+                    <label for="confirm_password">Confirm New Password</label><input id="confirm_password" name="confirm_password" type="password">
+                </div>
+                <div id="button">
+                    <button type="button" onclick="check()">Submit</button>
+                </div>
+            </form>
+        </div>
+    </article>
+</div>
+{% endblock %}

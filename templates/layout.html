@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{{ config.blog_name }}{% block title %}{% endblock %}</title>
+    <link rel="alternate" type="application/rss+xml" href="/feed" title="{{ config.blog_name }}" />
+    <link rel="icon" href="/static/img/icon.png" />
+    <link rel="stylesheet" href="/static/css/style.css" type="text/css" />
+    <link rel="stylesheet" href="/static/css/yue.css" type="text/css" />
+    {% if config.analytics.google %}
+    <!-- Google tag (gtag.js) -->
+    <script async src='https://www.googletagmanager.com/gtag/js?id={{ config.analytics.google }}'></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', '{{ config.analytics.google }}');
+    </script>
+    {% endif %}
+    {% if config.analytics.plausible %}
+    <script defer data-domain='{{ config.analytics.plausible }}' src="https://plausible.io/js/script.js"></script>
+    {% endif %}
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <div id="wrapper" class="yue">
+        <header id="header">
+            <a href="/" id="site_name">{{ config.blog_name }}</a>
+            <nav>
+                {% if config.about_url %}
+                <a href="{{ config.about_url }}">About</a>
+                {% endif %}
+                <a href="/articles">Articles</a>
+                <a href="/tags">Tags</a>
+                {% for page in pages %}
+                <a href="/{{ page.title | to_lowercase }}">{{ page.title }}</a>
+                {% endfor %}
+            </nav>
+        </header>
+        <div id="content">{% block content %} {% endblock %}</div>
+        <footer id="footer">
+            <div><a href="/feed">RSS</a></div>
+            Powered by <a href="https://github.com/JmPotato/rsomhaP">rsomhaP</a>
+        </footer>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,33 @@
+{% extends 'layout.html' %}
+
+{% block title %} | {{ article.title }}{% endblock%}
+
+{% block head %}
+<meta property="og:title" content="{{ article.title }}" />
+{% endblock %}
+
+{%block content %}
+<div class="post">
+    <h1 id="title">{{ article.title }}</h1>
+    <div class="date">{{ article.created_at[:10] }}</div>
+    <article id="article">{% autoescape false %}{{ article.content | md_to_html }}{% endautoescape %}</article>
+    <div class="tags">
+        Tagged with: {% for tag in tags %}<a href="/tag/{{ tag }}">{{ tag }}</a> {% endfor %}
+    </div>
+    {% if logged_in %}
+    <div class="admin_ops">
+        <a href="/admin/edit/article/{{ article.id }}">Edit</a>
+        <a onclick="if(confirm('Are you sure to delete this article?')){window.location.href='/admin/delete/article/{{ article.id }}';}">Delete</a>
+    </div>
+    {% endif %}
+    {% if config.giscus.enable %}
+    <script src="https://giscus.app/client.js" data-repo="{{ config.giscus.repo }}"
+        data-repo-id="{{ config.giscus.repo_id }}" data-category="{{ config.giscus.category }}"
+        data-category-id="{{ config.giscus.category_id }}" data-mapping="{{ config.giscus.mapping }}" data-strict="0"
+        data-reactions-enabled="{{ config.giscus.reactions_enabled }}"
+        data-emit-metadata="{{ config.giscus.emit_metadata }}" data-input-position="{{ config.giscus.input_position }}"
+        data-theme="{{ config.giscus.theme }}" data-lang="{{ config.giscus.lang }}" crossorigin="anonymous" async>
+        </script>
+    {% endif %}
+</div>
+{% endblock %}

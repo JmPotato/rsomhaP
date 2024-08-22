@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<ol id="posts">
+  {% for article in articles %}
+  <li>
+    <span class="date">{{ article.created_at[:10] }}</span>
+    <a href="/article/{{ article.id }}">{{ article.title }}</a>
+  </li>
+  {% endfor %}
+</ol>
+
+{% if total_article_count > config.article_per_page %}
+<div id="pagination">
+  {% if page_num-1 > 0 %}
+  <a id="prev" href="/page/{{ page_num-1 }}">Prev</a>
+  {% else %}
+  <a id="prev" style="visibility:hidden">Prev</a>
+  {% endif %}
+
+  <span>Page {{ page_num }} of {{ max_page }}</span>
+
+  {% if config.article_per_page*page_num < total_article_count %}
+  <a id="next" href="/page/{{ page_num+1 }}">Next</a>
+  {% else %}
+  <a id="next" style="visibility:hidden">Next</a>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

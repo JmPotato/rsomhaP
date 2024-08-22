@@ -1,0 +1,12 @@
+{% extends 'layout.html' %}
+
+{% block title %} | {{ page.title }}{% endblock %}
+
+{% block content %}
+<div class="post">
+    <h1 id="title">{{ page.title }}</h1>
+    <article>
+        {% autoescape false %}{{ page.content | md_to_html }}{% endautoescape %}
+    </article>
+</div>
+{% endblock %}

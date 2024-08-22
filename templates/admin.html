@@ -1,0 +1,75 @@
+{% extends 'layout.html' %}
+
+{% block title %} | Admin{% endblock %}
+
+{% block content %}
+<div class="post">
+    <h1 id="title">Admin Panel</h1>
+    <article>
+        <p>Hello! {{ config.blog_author }}. Welcome back!
+            <a href="/logout" onclick="return confirm('Are you sure to logout?');">Logout</a> &
+            <a href="/admin/change_password">Change Password</a>
+        </p>
+        <div class="item">
+            <a href="/admin/edit/article/new" style="margin-right:6px;">Write a new article</a>
+            <a href="/admin/edit/page/new" style="margin-right:6px;">Create a new page</a>
+        </div>
+        <div class="page-item">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                        <th>Manage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for page in pages %}
+                    <tr>
+                        <td>{{ page.id }}</td>
+                        <td><a href="/page/{{ page.title | to_lowercase }}">{{ page.title }}</a></td>
+                        <td>{{ page.created_at }}</td>
+                        <td>{{ page.updated_at }}</td>
+                        <td>
+                            <a href="/admin/edit/page/{{ page.id }}">Edit</a>
+                            <a style="text-decoration:underline;"
+                                onclick="if(confirm('Are you sure to delete this page?')){window.location.href='/admin/delete/page/{{ page.id }}';}">Delete</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="article-item">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                        <th>OP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for article in articles %}
+                    <tr>
+                        <td>{{ article.id }}</td>
+                        <td><a href="/article/{{ article.id }}">{{ article.title }}</a></td>
+                        <td>{{ article.created_at }}</td>
+                        <td>{{ article.updated_at }}</td>
+                        <td>
+                            <a href="/admin/edit/article/{{ article.id }}">Edit</a>
+                            <a style="text-decoration:underline;"
+                                onclick="if(confirm('Are you sure to delete this article?')){window.location.href='/admin/delete/article/{{ article.id }}';}">Delete</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</div>
+{% endblock %}

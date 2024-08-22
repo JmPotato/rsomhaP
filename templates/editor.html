@@ -1,0 +1,30 @@
+{% extends 'layout.html' %}
+
+{% block title %} | Editor{% endblock %}
+
+{% block content %}
+<div class="post">
+    <h1 id="title">Editor</h1>
+    <article>
+        <form action="#" method="post" id="article_editor">
+            <div class="input">
+                <label for="title">Title</label>
+                <input id="title" name="title" type="text" style="width:100%;" value="{{ article.title }}">
+            </div>
+            {% if not is_page %}
+            <div class="input">
+                <label for="tags">Tags</label>
+                <input id="tags" name="tags" type="text" style="width:100%;" value="{{ article.tags }}">
+            </div>
+            {% endif %}
+            <div class="input">
+                <label for="content">Content</label>
+                <textarea rows="30" id="content" name="content">{{ article.content }}</textarea>
+            </div>
+            <div id="submit">
+                <button type="submit">Post</button>
+            </div>
+        </form>
+    </article>
+</div>
+{% endblock %}
