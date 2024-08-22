@@ -23,6 +23,7 @@ Cargo.lock
 # Deployment
 config.dev.toml
 fly.toml
+fly.dev.toml
 
 # Others
 .DS_Store
