@@ -4,6 +4,13 @@
 
 {% block head %}
 <meta property="og:title" content="{{ article.title }}" />
+{% if config.twitter_card.enabled %}
+<meta name="twitter:card" content="summary">
+<meta name="twitter:creator" content="{{ config.blog_author }}">
+<meta name="twitter:creator:id" content="{{ config.twitter_card.user_id }}">
+<meta name="twitter:title" content="{{ article.title | truncate_str(70) }}">
+<meta name="twitter:description" content="{{ article.content | truncate_str(200) }}">
+{% endif %}
 {% endblock %}
 
 {%block content %}

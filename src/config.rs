@@ -118,6 +118,26 @@ impl Object for Analytics {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct TwitterCard {
+    enabled: bool,
+    user_id: String,
+}
+
+impl Object for TwitterCard {
+    fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
+        match key.as_str()? {
+            "enabled" => Some(Value::from(self.enabled)),
+            "user_id" => Some(Value::from(self.user_id.clone())),
+            _ => None,
+        }
+    }
+
+    fn enumerate(self: &Arc<Self>) -> Enumerator {
+        Enumerator::Str(&["enabled", "user_id"])
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     deploy: Deploy,
     meta: Meta,
@@ -126,6 +146,7 @@ pub struct Config {
     mysql: MySQL,
     giscus: Giscus,
     analytics: Analytics,
+    twitter_card: TwitterCard,
 }
 
 impl Config {
@@ -223,6 +244,7 @@ impl Object for Config {
             "article_per_page" => Some(Value::from(self.style.article_per_page)),
             "giscus" => Some(Value::from_object(self.giscus.clone())),
             "analytics" => Some(Value::from_object(self.analytics.clone())),
+            "twitter_card" => Some(Value::from_object(self.twitter_card.clone())),
             _ => None,
         }
     }
@@ -236,6 +258,7 @@ impl Object for Config {
             "article_per_page",
             "giscus",
             "analytics",
+            "twitter_card",
         ])
     }
 }

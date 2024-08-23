@@ -87,6 +87,13 @@ impl AppState {
         env.add_filter("md_to_html", move |md_content: &str| {
             Self::md_to_html(&config_clone, md_content)
         });
+        env.add_filter("truncate_str", |value: &str, max_length: usize| {
+            if value.chars().count() > max_length {
+                value.chars().take(max_length).collect()
+            } else {
+                value.to_string()
+            }
+        });
         env.add_filter("to_lowercase", |value: &str| value.to_lowercase());
 
         Ok(Self { config, env, db })

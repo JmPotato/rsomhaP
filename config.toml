@@ -53,3 +53,7 @@ theme = "light"
 # google = "G-XXXXXXXXXX"
 # https://plausible.io
 # plausible = "data.domain"
+
+[twitter_card]
+enabled = false
+user_id = "@JmPotat0"
