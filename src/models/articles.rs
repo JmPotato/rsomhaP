@@ -7,7 +7,7 @@ use tracing::info;
 pub struct Article {
     pub id: i32,
     title: String,
-    content: String,
+    pub content: String,
     pub tags: String,
     pub created_at: NaiveDateTime,
     updated_at: NaiveDateTime,

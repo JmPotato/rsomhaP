@@ -10,6 +10,8 @@ use axum::{
 use axum_login::AuthSession;
 use chrono::Datelike;
 use minijinja::context;
+use rand::{thread_rng, Rng};
+use regex::Regex;
 use serde::Deserialize;
 use tracing::error;
 
@@ -71,6 +73,19 @@ pub async fn handler_article(
                             .split(',')
                             .map(|s| s.trim().to_string())
                             .collect::<Vec<String>>(),
+                        image => {
+                            // find all image URLs in the article markdown content and choose one randomly.
+                            let re = Regex::new(r"\!\[.*?\]\((.*?)\)").unwrap();
+                            let mut image_urls: Vec<String> = vec![];
+                            for (_, [image_url]) in re.captures_iter(&article.content).map(|c| c.extract()) {
+                                image_urls.push(image_url.to_string());
+                            }
+                            if image_urls.is_empty() {
+                                None
+                            } else {
+                                Some(image_urls[thread_rng().gen_range(0..image_urls.len())].clone())
+                            }
+                        },
                         logged_in => auth_session.user.is_some(),
                     },
                 )
