@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::prelude::FromRow;
 use tracing::info;
@@ -9,8 +9,8 @@ pub struct Article {
     title: String,
     pub content: String,
     pub tags: String,
-    pub created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 impl Article {
@@ -59,7 +59,7 @@ impl Article {
         .unwrap()
     }
 
-    pub async fn get_latest_updated(db: &sqlx::MySqlPool) -> Option<NaiveDateTime> {
+    pub async fn get_latest_updated(db: &sqlx::MySqlPool) -> Option<DateTime<Utc>> {
         sqlx::query_scalar("SELECT MAX(updated_at) FROM articles")
             .fetch_one(db)
             .await

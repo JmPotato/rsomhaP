@@ -1,23 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
     <title>{{ config.blog_name }}</title>
-    <link href="/feed" rel="self" />
     <link href="{{ config.blog_url }}" />
+    <link href="{{ config.blog_url | concat_url('feed') }}" rel="self" type="application/rss+xml"/>
     {% if updated_at %}
-    <updated_at>{{ updated_at }}</updated_at>
+    <updated>{{ updated_at }}</updated>
     {% endif %}
-    <id>{{ config.blog_url }}</id>
+    <!-- to ensure it's in canonical form, as described by section 6 of RFC 3986 -->
+    <id>{{ config.blog_url | concat_url('') }}</id>
     {% for article in articles %}
     <entry>
-        <title><![CDATA[{{ article.title }}]]></title>
+        <title>{{ article.title }}</title>
         <author>
             <name>{{ config.blog_author }}</name>
             <uri>{{ config.blog_url }}</uri>
         </author>
-        <link href="{{ config.blog_url }}/article/{{ article.id }}"/>
+        <link href="{{ config.blog_url | concat_url('article') }}/{{ article.id }}"/>
         <published>{{ article.created_at }}</published>
-        <updated_at>{{ article.updated_at }}</updated_at>
-        <id>{{ config.blog_url }}/article/{{ article.id }}</id>
+        <updated>{{ article.updated_at }}</updated>
+        <id>{{ config.blog_url | concat_url('article') }}/{{ article.id }}</id>
         <content type="html">
             <![CDATA[{% autoescape false %}{{ article.content | md_to_html }}{% endautoescape %}]]>
         </content>

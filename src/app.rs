@@ -95,6 +95,13 @@ impl AppState {
             }
         });
         env.add_filter("to_lowercase", |value: &str| value.to_lowercase());
+        env.add_filter("concat_url", |value: &str, uri: &str| {
+            if value.ends_with("/") {
+                format!("{}{}", value, uri)
+            } else {
+                format!("{}/{}", value, uri)
+            }
+        });
 
         Ok(Self { config, env, db })
     }
