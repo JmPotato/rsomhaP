@@ -131,10 +131,23 @@ pub struct Config {
 impl Config {
     pub fn new(path: &str) -> Result<Self, Error> {
         let config_content = std::fs::read_to_string(path).unwrap();
-        let config: Self = toml::from_str(&config_content).map_err(Error::Toml)?;
+        let mut config: Self = toml::from_str(&config_content).map_err(Error::Toml)?;
+        // get some environment variables.
+        config.load_env_vars()?;
+        // validate the config to ensure the deployment is correct.
         config.validate()?;
 
         Ok(config)
+    }
+
+    fn load_env_vars(&mut self) -> Result<(), Error> {
+        if let Ok(mysql_connection_url) = std::env::var("MYSQL_CONNECTION_URL") {
+            self.mysql.connection_url = Some(mysql_connection_url);
+        }
+        if let Ok(plausible_domain) = std::env::var("PLAUSIBLE_DOMAIN") {
+            self.analytics.plausible = Some(plausible_domain);
+        }
+        Ok(())
     }
 
     pub fn validate(&self) -> Result<(), Error> {

@@ -4,15 +4,14 @@ port = 5299
 
 [meta]
 blog_name = "rsomhaP"
-blog_url = "http://0.0.0.0:5299"
+blog_url = "https://rsomhap.fly.dev"
 blog_author = "JmPotato"
-# You can customize the about page URL.
-# about_url = "https://about.ipotato.me"
+about_url = "https://github.com/JmPotato/rsomhaP"
 
 [admin]
 # The admin username used to login to the admin page.
 # Its password is the same as the username, so please change it after deploying ASAP.
-username = "admin"
+username = "rsomhaP"
 # The number of inactive days that the admin session will be expired.
 inactive_expiry_days = 30
 
