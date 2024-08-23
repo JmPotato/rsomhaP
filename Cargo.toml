@@ -7,7 +7,9 @@ edition = "2021"
 axum = "0.7"
 axum-login = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
-comrak = { version = "0.27", features = ["syntect"] }
+comrak = { git = "https://github.com/kivikakk/comrak", rev = "e30dd1e9b792a6743fe99c243f9a49b49832c4e6", features = [
+    "syntect",
+] }
 minijinja = { version = "2.1", features = ["loader"] }
 password-auth = "1.0.0"
 rand = "0.8"

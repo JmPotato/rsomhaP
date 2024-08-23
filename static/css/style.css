@@ -364,11 +364,6 @@ table {
   word-break: break-word;
 }
 
-#content .post article p img {
-  display: block;
-  margin: auto;
-}
-
 #content .post .tags {
   display: inline;
   color: gray;

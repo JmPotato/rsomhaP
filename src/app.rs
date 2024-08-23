@@ -111,6 +111,7 @@ impl AppState {
         let mut options = Options::default();
         options.extension.strikethrough = true;
         options.extension.autolink = true;
+        options.render.figure_with_caption = true;
         // enable the syntax highlight adapter.
         let mut plugins = Plugins::default();
         let adapter = syntect::SyntectAdapterBuilder::new()
