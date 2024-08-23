@@ -215,7 +215,7 @@
   border: 0;
   border-left: 3px solid #dadada;
   padding-left: 10px;
-  overflow: scroll;
+  overflow: auto;
   line-height: 1.5;
   font-size: 0.85em;
   font-family: Menlo, Monaco, Consolas, "Courier New", monospace;

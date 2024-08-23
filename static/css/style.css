@@ -138,14 +138,14 @@ form {
 div .page-item {
   margin-top: 15px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  overflow: scroll;
+  overflow: auto;
   max-height: 300px;
 }
 
 div .article-item {
   margin-top: 15px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  overflow: scroll;
+  overflow: auto;
   max-height: 600px;
 }
 
@@ -245,7 +245,7 @@ table {
 }
 
 #wrapper {
-  width: 720px;
+  width: 800px;
   margin-left: auto;
   margin-right: auto;
   padding-top: 20px;
