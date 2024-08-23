@@ -37,6 +37,8 @@ Technically, you can deploy rsomhaP with modern SaaS infrastructures entirely fr
 
 - Use [TiDB Serverless](https://www.pingcap.com/tidb-serverless) as the MySQL-compatible database.
 - Use [fly.io](https://fly.io) as the hosting service.
+- Use [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2) as the image hosting service.
+- Use [WebP Cloud Services](https://webp.se) as the image proxy service.
 
 ## License
 
