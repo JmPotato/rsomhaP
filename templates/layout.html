@@ -35,8 +35,8 @@
                 {% endif %}
                 <a href="/articles">Articles</a>
                 <a href="/tags">Tags</a>
-                {% for page in pages %}
-                <a href="/{{ page.title | to_lowercase }}">{{ page.title }}</a>
+                {% for page_title in page_titles %}
+                <a href="/{{ page_title | to_lowercase }}">{{ page_title }}</a>
                 {% endfor %}
             </nav>
         </header>

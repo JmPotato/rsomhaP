@@ -126,7 +126,7 @@ impl AppState {
         let template = self.env.get_template(template_name).unwrap();
         template
             .render(context! {
-                pages => Page::get_all(&self.db).await,
+                page_titles => Page::get_all_titles(&self.db).await,
                 ..context,
             })
             .unwrap()
