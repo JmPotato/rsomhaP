@@ -2,6 +2,18 @@
 
 {% block title %} | Editor{% endblock %}
 
+{% block head %}
+<script>
+    function check() {
+        if (document.getElementById("article_title").value === "") {
+            alert("The article/page title cannot be empty");
+            return;
+        }
+        document.getElementById("article_editor").submit();
+    }
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="post">
     <h1 id="title">Editor</h1>
@@ -9,7 +21,7 @@
         <form action="#" method="post" id="article_editor">
             <div class="input">
                 <label for="title">Title</label>
-                <input id="title" name="title" type="text" style="width:100%;" value="{{ article.title }}">
+                <input id="article_title" name="title" type="text" style="width:100%;" value="{{ article.title }}">
             </div>
             {% if not is_page %}
             <div class="input">
@@ -22,7 +34,7 @@
                 <textarea rows="30" id="content" name="content">{{ article.content }}</textarea>
             </div>
             <div id="submit">
-                <button type="submit">Post</button>
+                <button type="button" onclick="check()">Submit</button>
             </div>
         </form>
     </article>

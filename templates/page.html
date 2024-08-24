@@ -5,7 +5,7 @@
 {% block content %}
 <div class="post">
     <h1 id="title">{{ page.title }}</h1>
-    <article>
+    <article id="article">
         {% autoescape false %}{{ page.content | md_to_html }}{% endautoescape %}
     </article>
 </div>

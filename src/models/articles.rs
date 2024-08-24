@@ -104,7 +104,7 @@ impl Article {
         title: &str,
         content: &str,
         tags: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<Self, sqlx::Error> {
         info!("updating article: {}", id);
         let mut tx = db.begin().await?;
 
@@ -125,7 +125,9 @@ impl Article {
         Self::insert_tags(&mut tx, tags, id).await?;
         info!("inserted tags {} for article {}", tags, id);
 
-        tx.commit().await
+        tx.commit().await?;
+
+        Ok(Self::get_by_id(db, id).await.unwrap())
     }
 
     async fn clear_tags(

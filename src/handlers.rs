@@ -1,6 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+    sync::Arc,
+};
 
 use axum::{
+    async_trait,
     body::Body,
     extract::{Path, Query, State},
     http::{header::CONTENT_TYPE, Response, StatusCode},
@@ -12,7 +17,7 @@ use chrono::Datelike;
 use minijinja::context;
 use rand::{thread_rng, Rng};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use tracing::error;
 
 use crate::{
@@ -359,7 +364,7 @@ fn redirect_with_message(url: &str, message: &str) -> Redirect {
     Redirect::to(format!("{}?message={}", url, message).as_str())
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct EditorPath {
     id: Option<i32>,
 }
@@ -386,50 +391,6 @@ pub async fn handler_edit_article_get(
     ))
 }
 
-#[derive(Deserialize)]
-pub struct EditorForm {
-    title: String,
-    tags: String,
-    content: String,
-}
-
-pub async fn handler_edit_article_post(
-    state: State<Arc<AppState>>,
-    Path(editor_path): Path<EditorPath>,
-    Form(editor_form): Form<EditorForm>,
-) -> impl IntoResponse {
-    async fn handle_update(
-        state: &AppState,
-        id: i32,
-        form: &EditorForm,
-    ) -> Result<Redirect, Redirect> {
-        Article::update(&state.db, id, &form.title, &form.content, &form.tags)
-            .await
-            .map(|_| Redirect::to(format!("/article/{}", id).as_str()))
-            .map_err(|err| {
-                error!("failed updating article: {:?}", err);
-                Redirect::to("/")
-            })
-    }
-
-    async fn handle_insert(state: &AppState, form: &EditorForm) -> Result<Redirect, Redirect> {
-        Article::insert(&state.db, &form.title, &form.content, &form.tags)
-            .await
-            .map(|article| Redirect::to(format!("/article/{}", article.id).as_str()))
-            .map_err(|err| {
-                error!("failed inserting article: {:?}", err);
-                Redirect::to("/")
-            })
-    }
-
-    match editor_path.id {
-        Some(id) => handle_update(&state, id, &editor_form)
-            .await
-            .into_response(),
-        None => handle_insert(&state, &editor_form).await.into_response(),
-    }
-}
-
 pub async fn handler_edit_page_get(
     state: State<Arc<AppState>>,
     Path(editor_path): Path<EditorPath>,
@@ -452,40 +413,91 @@ pub async fn handler_edit_page_get(
     ))
 }
 
-pub async fn handler_edit_page_post(
-    state: State<Arc<AppState>>,
+#[async_trait]
+pub trait Editable: DeserializeOwned + Display {
+    type Output;
+
+    fn get_redirect_url(output: &Self::Output) -> String;
+    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error>;
+    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error>;
+}
+
+pub async fn handler_edit_post<T: Editable>(
+    State(state): State<Arc<AppState>>,
     Path(editor_path): Path<EditorPath>,
-    Form(editor_form): Form<EditorForm>,
+    Form(editor_form): Form<T>,
 ) -> impl IntoResponse {
-    async fn handle_update(
-        state: &AppState,
-        id: i32,
-        form: &EditorForm,
-    ) -> Result<Redirect, Redirect> {
-        Page::update(&state.db, id, &form.title, &form.content)
-            .await
-            .map(|_| Redirect::to(format!("/{}", form.title.to_lowercase()).as_str()))
-            .map_err(|err| {
-                error!("failed updating page: {:?}", err);
-                Redirect::to("/")
-            })
+    let result = match editor_path.id {
+        Some(id) => editor_form.handle_update(&state, id).await,
+        None => editor_form.handle_insert(&state).await,
+    };
+
+    match result {
+        Ok(output) => Redirect::to(T::get_redirect_url(&output).as_str()),
+        Err(err) => {
+            error!("failed processing {}: {:?}", editor_form, err);
+            Redirect::to("/admin")
+        }
+    }
+    .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ArticleForm {
+    title: String,
+    tags: String,
+    content: String,
+}
+
+impl Display for ArticleForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "article title: {}, tags: {}", self.title, self.tags)
+    }
+}
+
+#[async_trait]
+impl Editable for ArticleForm {
+    type Output = Article;
+
+    fn get_redirect_url(output: &Self::Output) -> String {
+        format!("/article/{}", output.id)
     }
 
-    async fn handle_insert(state: &AppState, form: &EditorForm) -> Result<Redirect, Redirect> {
-        Page::insert(&state.db, &form.title, &form.content)
-            .await
-            .map(|page| Redirect::to(format!("/{}", page.title.to_lowercase()).as_str()))
-            .map_err(|err| {
-                error!("failed inserting page: {:?}", err);
-                Redirect::to("/")
-            })
+    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error> {
+        Article::update(&state.db, id, &self.title, &self.content, &self.tags).await
     }
 
-    match editor_path.id {
-        Some(id) => handle_update(&state, id, &editor_form)
-            .await
-            .into_response(),
-        None => handle_insert(&state, &editor_form).await.into_response(),
+    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error> {
+        Article::insert(&state.db, &self.title, &self.content, &self.tags).await
+    }
+}
+
+#[derive(Deserialize)]
+pub struct PageForm {
+    title: String,
+    content: String,
+}
+
+impl Display for PageForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "page title: {}", self.title)
+    }
+}
+
+#[async_trait]
+impl Editable for PageForm {
+    type Output = Page;
+
+    fn get_redirect_url(output: &Self::Output) -> String {
+        format!("/{}", output.title.to_lowercase())
+    }
+
+    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error> {
+        Page::update(&state.db, id, &self.title, &self.content).await
+    }
+
+    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error> {
+        Page::insert(&state.db, &self.title, &self.content).await
     }
 }
 

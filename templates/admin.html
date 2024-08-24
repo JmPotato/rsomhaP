@@ -29,7 +29,7 @@
                     {% for page in pages %}
                     <tr>
                         <td>{{ page.id }}</td>
-                        <td><a href="/page/{{ page.title | to_lowercase }}">{{ page.title }}</a></td>
+                        <td><a href="/{{ page.title | to_lowercase }}">{{ page.title }}</a></td>
                         <td>{{ page.created_at }}</td>
                         <td>{{ page.updated_at }}</td>
                         <td>

@@ -24,9 +24,9 @@ use crate::{
     handlers::{
         handler_404, handler_admin, handler_article, handler_articles, handler_change_pw_get,
         handler_change_pw_post, handler_custom_page, handler_delete_article, handler_delete_page,
-        handler_edit_article_get, handler_edit_article_post, handler_edit_page_get,
-        handler_edit_page_post, handler_feed, handler_home, handler_login_get, handler_login_post,
-        handler_logout, handler_page, handler_ping, handler_tag, handler_tags,
+        handler_edit_article_get, handler_edit_page_get, handler_edit_post, handler_feed,
+        handler_home, handler_login_get, handler_login_post, handler_logout, handler_page,
+        handler_ping, handler_tag, handler_tags, ArticleForm, PageForm,
     },
     models::{create_tables, Page, User},
 };
@@ -162,14 +162,20 @@ impl App {
             .route(CHANGE_PW_URL, get(handler_change_pw_get))
             .route(CHANGE_PW_URL, post(handler_change_pw_post))
             .route("/admin/edit/article/new", get(handler_edit_article_get))
-            .route("/admin/edit/article/new", post(handler_edit_article_post))
+            .route(
+                "/admin/edit/article/new",
+                post(handler_edit_post::<ArticleForm>),
+            )
             .route("/admin/edit/article/:id", get(handler_edit_article_get))
-            .route("/admin/edit/article/:id", post(handler_edit_article_post))
+            .route(
+                "/admin/edit/article/:id",
+                post(handler_edit_post::<ArticleForm>),
+            )
             .route("/admin/delete/article/:id", get(handler_delete_article))
             .route("/admin/edit/page/new", get(handler_edit_page_get))
-            .route("/admin/edit/page/new", post(handler_edit_page_post))
+            .route("/admin/edit/page/new", post(handler_edit_post::<PageForm>))
             .route("/admin/edit/page/:id", get(handler_edit_page_get))
-            .route("/admin/edit/page/:id", post(handler_edit_page_post))
+            .route("/admin/edit/page/:id", post(handler_edit_post::<PageForm>))
             .route("/admin/delete/page/:id", get(handler_delete_page))
             .route("/logout", get(handler_logout))
             .route_layer(login_required!(AppState, login_url = "/login"))
@@ -183,13 +189,13 @@ impl App {
             // serve the page handlers
             .route("/", get(handler_home))
             .route("/page/:num", get(handler_page))
-            .route("/:page", get(handler_custom_page))
             .route("/article/:id", get(handler_article))
             .route("/articles", get(handler_articles))
             .route("/tag/:tag", get(handler_tag))
             .route("/tags", get(handler_tags))
             .route("/feed", get(handler_feed))
             .route("/ping", get(handler_ping))
+            .route("/:page", get(handler_custom_page))
             .merge(admin_router)
             .layer(auth_layer)
             .layer(

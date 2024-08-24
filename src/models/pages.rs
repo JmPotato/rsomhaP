@@ -4,7 +4,7 @@ use sqlx::prelude::FromRow;
 
 #[derive(FromRow, Serialize)]
 pub struct Page {
-    id: i32,
+    pub id: i32,
     pub title: String,
     pub content: String,
     pub created_at: DateTime<Utc>,
@@ -41,14 +41,15 @@ impl Page {
         id: i32,
         title: &str,
         content: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query("UPDATE pages SET title = ?, content = ? WHERE id = ?")
             .bind(title)
             .bind(content)
             .bind(id)
             .execute(db)
             .await?;
-        Ok(())
+
+        Ok(Self::get_by_id(&db, id).await.unwrap())
     }
 
     pub async fn insert(
