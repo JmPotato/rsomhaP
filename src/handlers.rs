@@ -337,7 +337,7 @@ pub async fn handler_change_pw_post(
                 CHANGE_PW_URL,
                 "Failed to validate the old password, please try again.",
             )
-            .into_response()
+            .into_response();
         }
     };
     // update the password hash in the database.
@@ -349,15 +349,13 @@ pub async fn handler_change_pw_post(
     )
     .await
     {
-        Ok(_) => Redirect::to("/admin").into_response(),
-        Err(_) => {
-            return redirect_with_message(
-                CHANGE_PW_URL,
-                "Failed to update the password, please try again.",
-            )
-            .into_response()
-        }
+        Ok(_) => Redirect::to("/admin"),
+        Err(_) => redirect_with_message(
+            CHANGE_PW_URL,
+            "Failed to update the password, please try again.",
+        ),
     }
+    .into_response()
 }
 
 fn redirect_with_message(url: &str, message: &str) -> Redirect {

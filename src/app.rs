@@ -31,10 +31,10 @@ use crate::{
     models::{create_tables, Page, User},
 };
 
-const TEMPLATES_DIR: &'static str = "templates";
-const STATIC_DIR: &'static str = "static";
+const TEMPLATES_DIR: &str = "templates";
+const STATIC_DIR: &str = "static";
 // TODO: support specifying the config file path via command line argument.
-const CONFIG_FILE_PATH: &'static str = "config.toml";
+const CONFIG_FILE_PATH: &str = "config.toml";
 
 // AppState is used to pass the global states to the handlers.
 #[derive(Clone)]
@@ -96,7 +96,7 @@ impl AppState {
         });
         env.add_filter("to_lowercase", |value: &str| value.to_lowercase());
         env.add_filter("concat_url", |value: &str, uri: &str| {
-            if value.ends_with("/") {
+            if value.ends_with('/') {
                 format!("{}{}", value, uri)
             } else {
                 format!("{}/{}", value, uri)

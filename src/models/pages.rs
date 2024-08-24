@@ -49,7 +49,7 @@ impl Page {
             .execute(db)
             .await?;
 
-        Ok(Self::get_by_id(&db, id).await.unwrap())
+        Ok(Self::get_by_id(db, id).await.unwrap())
     }
 
     pub async fn insert(
@@ -71,7 +71,7 @@ impl Page {
 
         tx.commit().await?;
 
-        Ok(Self::get_by_id(&db, id).await.unwrap())
+        Ok(Self::get_by_id(db, id).await.unwrap())
     }
 
     pub async fn delete(db: &sqlx::MySqlPool, id: i32) -> Result<(), sqlx::Error> {

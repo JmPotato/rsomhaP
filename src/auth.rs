@@ -48,6 +48,6 @@ impl AuthnBackend for AppState {
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        Ok(User::get_by_username(&self.db, &user_id).await)
+        Ok(User::get_by_username(&self.db, user_id).await)
     }
 }
