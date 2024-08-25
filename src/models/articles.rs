@@ -18,7 +18,7 @@ impl Article {
         sqlx::query_as("SELECT * FROM articles ORDER BY id DESC")
             .fetch_all(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 
     pub async fn get_on_page(db: &sqlx::MySqlPool, page: u32, article_per_page: u32) -> Vec<Self> {
@@ -27,14 +27,14 @@ impl Article {
             .bind((page - 1) * article_per_page)
             .fetch_all(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 
     pub async fn get_total_count(db: &sqlx::MySqlPool) -> i32 {
         sqlx::query_scalar("SELECT COUNT(*) FROM articles")
             .fetch_one(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 
     pub async fn get_by_id(db: &sqlx::MySqlPool, id: i32) -> Option<Self> {
@@ -47,23 +47,23 @@ impl Article {
 
     pub async fn get_by_tag(db: &sqlx::MySqlPool, tag: &str) -> Vec<Self> {
         sqlx::query_as(
-            "SELECT a.id, a.title, a.content, a.tags, a.created_at, a.updated_at 
-             FROM articles AS a 
-             INNER JOIN tags AS t ON a.id = t.article_id 
-             WHERE t.name = ? 
+            "SELECT a.id, a.title, a.content, a.tags, a.created_at, a.updated_at
+             FROM articles AS a
+             INNER JOIN tags AS t ON a.id = t.article_id
+             WHERE t.name = ?
              ORDER BY a.id DESC",
         )
         .bind(tag)
         .fetch_all(db)
         .await
-        .unwrap()
+        .unwrap_or_default()
     }
 
     pub async fn get_latest_updated(db: &sqlx::MySqlPool) -> Option<DateTime<Utc>> {
         sqlx::query_scalar("SELECT MAX(updated_at) FROM articles")
             .fetch_one(db)
             .await
-            .unwrap()
+            .ok()
     }
 
     pub async fn insert(
@@ -185,6 +185,6 @@ impl Tags {
         sqlx::query_as("SELECT name, COUNT(name) AS num FROM tags GROUP BY name ORDER BY num DESC")
             .fetch_all(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 }

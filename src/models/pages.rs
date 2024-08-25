@@ -16,14 +16,14 @@ impl Page {
         sqlx::query_as("SELECT * FROM pages ORDER BY id DESC")
             .fetch_all(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 
     pub async fn get_all_titles(db: &sqlx::MySqlPool) -> Vec<String> {
         sqlx::query_scalar("SELECT title FROM pages ORDER BY title ASC")
             .fetch_all(db)
             .await
-            .unwrap()
+            .unwrap_or_default()
     }
 
     pub async fn get_by_id(db: &sqlx::MySqlPool, id: i32) -> Option<Self> {

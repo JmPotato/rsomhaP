@@ -151,7 +151,7 @@ pub struct Config {
 
 impl Config {
     pub fn new(path: &str) -> Result<Self, Error> {
-        let config_content = std::fs::read_to_string(path).unwrap();
+        let config_content = std::fs::read_to_string(path)?;
         let mut config: Self = toml::from_str(&config_content).map_err(Error::Toml)?;
         // get some environment variables.
         config.load_env_vars()?;
@@ -201,18 +201,31 @@ impl Config {
 
     // get the MySQL connection URL according to the config, it will use `connection_url` if it is set,
     // otherwise it will use `username`, `password`, `host`, `port` and `database` to build one.
-    pub fn mysql_connection_url(&self) -> String {
-        if let Some(connection_url) = self.mysql.connection_url.clone() {
-            connection_url
+    pub fn mysql_connection_url(&self) -> Result<String, Error> {
+        if let Some(connection_url) = &self.mysql.connection_url {
+            Ok(connection_url.clone())
         } else {
-            format!(
+            let (username, password, host, port, database) = (
+                self.mysql
+                    .username
+                    .as_ref()
+                    .ok_or(Error::InvalidMySQLConfig)?,
+                self.mysql
+                    .password
+                    .as_ref()
+                    .ok_or(Error::InvalidMySQLConfig)?,
+                self.mysql.host.as_ref().ok_or(Error::InvalidMySQLConfig)?,
+                self.mysql.port.ok_or(Error::InvalidMySQLConfig)?,
+                self.mysql
+                    .database
+                    .as_ref()
+                    .ok_or(Error::InvalidMySQLConfig)?,
+            );
+
+            Ok(format!(
                 "mysql://{}:{}@{}:{}/{}",
-                self.mysql.username.as_ref().unwrap(),
-                self.mysql.password.as_ref().unwrap(),
-                self.mysql.host.as_ref().unwrap(),
-                self.mysql.port.unwrap(),
-                self.mysql.database.as_ref().unwrap()
-            )
+                username, password, host, port, database
+            ))
         }
     }
 

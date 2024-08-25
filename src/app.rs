@@ -51,13 +51,10 @@ impl AppState {
 
         info!("connecting to the database");
         // connect to the database.
-        let db = match sqlx::MySqlPool::connect(&config.mysql_connection_url()).await {
-            Ok(db) => db,
-            Err(e) => return Err(Error::Sqlx(e)),
-        };
+        let db = sqlx::MySqlPool::connect(&config.mysql_connection_url()?).await?;
         info!("initializing the database");
         // create the tables if they don't exist.
-        create_tables(&db).await.unwrap();
+        create_tables(&db).await?;
         // init the admin user.
         let admin_username = config.admin_username();
         User::insert(
@@ -65,20 +62,19 @@ impl AppState {
             &admin_username,
             &password_auth::generate_hash(&admin_username),
         )
-        .await
-        .unwrap();
+        .await?;
 
         info!("initializing the environment");
         let mut env = Environment::new();
         // iterate the templates directory and add all the templates.
-        for entry in std::fs::read_dir(TEMPLATES_DIR).unwrap() {
+        for entry in std::fs::read_dir(TEMPLATES_DIR)? {
             let path = entry.unwrap().path();
             if !path.is_file() {
                 continue;
             }
             let file_name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let template_content = std::fs::read_to_string(path).unwrap();
-            env.add_template_owned(file_name, template_content).unwrap();
+            let template_content = std::fs::read_to_string(path)?;
+            env.add_template_owned(file_name, template_content)?;
         }
         // load the global variables into the environment.
         env.add_global("config", Value::from_object(config.clone()));
@@ -205,11 +201,9 @@ impl App {
             )
             .with_state(Arc::new(self.state.clone()));
 
-        let listener = tokio::net::TcpListener::bind(self.state.config.server_url())
-            .await
-            .unwrap();
-        info!("listening on {}", listener.local_addr().unwrap());
-        axum::serve(listener, app).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(self.state.config.server_url()).await?;
+        info!("listening on {}", listener.local_addr()?);
+        axum::serve(listener, app).await?;
 
         Ok(())
     }

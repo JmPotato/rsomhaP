@@ -504,13 +504,18 @@ pub async fn handler_delete_article(
     Path(editor_path): Path<EditorPath>,
 ) -> impl IntoResponse {
     let redirect = Redirect::to("/admin");
-    match Article::delete(&state.db, editor_path.id.unwrap()).await {
-        Ok(_) => redirect.into_response(),
+    let id = match editor_path.id {
+        Some(id) => id,
+        None => return redirect.into_response(),
+    };
+    match Article::delete(&state.db, id).await {
+        Ok(_) => redirect,
         Err(err) => {
             error!("failed deleting article: {:?}", err);
-            redirect.into_response()
+            redirect
         }
     }
+    .into_response()
 }
 
 pub async fn handler_delete_page(
@@ -518,13 +523,18 @@ pub async fn handler_delete_page(
     Path(editor_path): Path<EditorPath>,
 ) -> impl IntoResponse {
     let redirect = Redirect::to("/admin");
-    match Page::delete(&state.db, editor_path.id.unwrap()).await {
-        Ok(_) => redirect.into_response(),
+    let id = match editor_path.id {
+        Some(id) => id,
+        None => return redirect.into_response(),
+    };
+    match Page::delete(&state.db, id).await {
+        Ok(_) => redirect,
         Err(err) => {
             error!("failed deleting page: {:?}", err);
-            redirect.into_response()
+            redirect
         }
     }
+    .into_response()
 }
 
 pub async fn handler_ping() -> impl IntoResponse {
