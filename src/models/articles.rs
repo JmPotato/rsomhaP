@@ -1,11 +1,19 @@
+use std::fmt::{self, Display};
+
+use axum::async_trait;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use tracing::info;
 
-#[derive(FromRow, Serialize)]
+use crate::{
+    utils::{sort_out_tags, Editable, EditorForm},
+    Error,
+};
+
+#[derive(FromRow, Serialize, Deserialize, Default)]
 pub struct Article {
-    pub id: i32,
+    id: Option<i32>,
     title: String,
     pub content: String,
     pub tags: String,
@@ -66,98 +74,103 @@ impl Article {
             .ok()
     }
 
-    pub async fn insert(
-        db: &sqlx::MySqlPool,
-        title: &str,
-        content: &str,
-        tags: &str,
-    ) -> Result<Self, sqlx::Error> {
-        info!("inserting article: {}", title);
-        let mut tx = db.begin().await?;
+    async fn clear_tags(&self, tx: &mut sqlx::Transaction<'_, sqlx::MySql>) -> Result<(), Error> {
+        sqlx::query("DELETE FROM tags WHERE article_id = ?")
+            .bind(self.id)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.into())
+            .map(|_| ())
+    }
+}
 
-        // insert into the articles table
-        sqlx::query(
-            "INSERT INTO articles (title, content, tags, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())",
-        )
-        .bind(title)
-        .bind(content)
-        .bind(tags)
-        .execute(&mut *tx)
-        .await?;
-        // get the last inserted id
-        let id = sqlx::query_scalar::<_, u64>("SELECT LAST_INSERT_ID()")
-            .fetch_one(&mut *tx)
-            .await? as i32;
-        info!("inserted article {} with id {}", title, id);
-        // insert into the tags table
-        Article::insert_tags(&mut tx, tags, id).await?;
-        info!("inserted tags: {}", tags);
+impl Display for Article {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "article")?;
+        if let Some(id) = self.id {
+            write!(f, " {}", id)?;
+        }
+        if !self.title.is_empty() {
+            write!(f, " <{}>", self.title)?;
+        }
+        if !self.tags.is_empty() {
+            write!(f, " [{}]", self.tags)?;
+        }
+        Ok(())
+    }
+}
 
-        tx.commit().await?;
-
-        Ok(Self::get_by_id(db, id).await.unwrap())
+#[async_trait]
+impl Editable for Article {
+    fn get_redirect_url(&self) -> String {
+        match self.id {
+            Some(id) => format!("/article/{}", id),
+            None => "/".to_string(),
+        }
     }
 
-    pub async fn update(
-        db: &sqlx::MySqlPool,
-        id: i32,
-        title: &str,
-        content: &str,
-        tags: &str,
-    ) -> Result<Self, sqlx::Error> {
-        info!("updating article: {}", id);
+    async fn update(&self, db: &sqlx::MySqlPool) -> Result<Self, Error> {
+        let id = match self.id {
+            Some(id) => id,
+            None => return Err(sqlx::Error::RowNotFound.into()),
+        };
+
         let mut tx = db.begin().await?;
 
         // update the articles table
         sqlx::query(
             "UPDATE articles SET title = ?, content = ?, tags = ?, updated_at = NOW() WHERE id = ?",
         )
-        .bind(title)
-        .bind(content)
-        .bind(tags)
+        .bind(&self.title)
+        .bind(&self.content)
+        .bind(&self.tags)
         .bind(id)
         .execute(&mut *tx)
         .await?;
-        info!("updated article {} with id {}", title, id);
+        info!("updated article {} with id {}", self.title, id);
         // update the tags table
-        Self::clear_tags(&mut tx, id).await?;
+        self.clear_tags(&mut tx).await?;
         info!("cleared tags for article {}", id);
-        Self::insert_tags(&mut tx, tags, id).await?;
-        info!("inserted tags {} for article {}", tags, id);
+        Tags::insert_tags(&mut tx, &self.tags, id).await?;
+        info!("inserted tags {} for article {}", self.tags, id);
 
         tx.commit().await?;
 
         Ok(Self::get_by_id(db, id).await.unwrap())
     }
 
-    async fn clear_tags(
-        tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
-        article_id: i32,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM tags WHERE article_id = ?")
-            .bind(article_id)
-            .execute(&mut **tx)
-            .await?;
-        Ok(())
+    async fn insert(&self, db: &sqlx::MySqlPool) -> Result<Self, Error> {
+        let mut tx = db.begin().await?;
+
+        // insert into the articles table
+        sqlx::query(
+            "INSERT INTO articles (title, content, tags, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())",
+        )
+        .bind(&self.title)
+        .bind(&self.content)
+        .bind(&self.tags)
+        .execute(&mut *tx)
+        .await?;
+        // get the last inserted id
+        let id = sqlx::query_scalar::<_, u64>("SELECT LAST_INSERT_ID()")
+            .fetch_one(&mut *tx)
+            .await? as i32;
+        info!("inserted article {} with id {}", self.title, id);
+        // insert into the tags table
+        Tags::insert_tags(&mut tx, &self.tags, id).await?;
+        info!("inserted tags: {}", self.tags);
+
+        tx.commit().await?;
+
+        Ok(Self::get_by_id(db, id).await.unwrap())
     }
 
-    async fn insert_tags(
-        tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
-        tags: &str,
-        article_id: i32,
-    ) -> Result<(), sqlx::Error> {
-        for tag in tags.split(',').map(|s| s.trim()) {
-            sqlx::query("INSERT INTO tags (name, article_id) VALUES (?, ?)")
-                .bind(tag)
-                .bind(article_id)
-                .execute(&mut **tx)
-                .await?;
-        }
-        Ok(())
-    }
+    async fn delete(&self, db: &sqlx::MySqlPool) -> Result<(), Error> {
+        let id = match self.id {
+            Some(id) => id,
+            None => return Err(sqlx::Error::RowNotFound.into()),
+        };
 
-    pub async fn delete(db: &sqlx::MySqlPool, id: i32) -> Result<(), sqlx::Error> {
-        info!("deleting article: {}", id);
         let mut tx = db.begin().await?;
 
         // delete the article
@@ -167,10 +180,23 @@ impl Article {
             .await?;
         info!("deleted article: {}", id);
         // delete the tags
-        Self::clear_tags(&mut tx, id).await?;
+        self.clear_tags(&mut tx).await?;
         info!("cleared tags for article {}", id);
 
-        tx.commit().await
+        tx.commit().await.map_err(|e| e.into())
+    }
+}
+
+impl From<EditorForm> for Article {
+    fn from(from: EditorForm) -> Self {
+        Article {
+            id: from.id,
+            // trim the title and tags to remove leading and trailing whitespace and commas
+            title: from.title.unwrap_or_default().trim().to_string(),
+            tags: sort_out_tags(&from.tags.unwrap_or_default()),
+            content: from.content.unwrap_or_default(),
+            ..Default::default()
+        }
     }
 }
 
@@ -186,5 +212,23 @@ impl Tags {
             .fetch_all(db)
             .await
             .unwrap_or_default()
+    }
+
+    async fn insert_tags(
+        tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+        tags: &str,
+        article_id: i32,
+    ) -> Result<(), Error> {
+        for tag in tags.split(',').map(|s| s.trim()) {
+            if tag.is_empty() {
+                continue;
+            }
+            sqlx::query("INSERT INTO tags (name, article_id) VALUES (?, ?)")
+                .bind(tag)
+                .bind(article_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(())
     }
 }

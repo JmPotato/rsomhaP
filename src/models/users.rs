@@ -1,6 +1,8 @@
 use serde::Serialize;
 use sqlx::prelude::FromRow;
 
+use crate::Error;
+
 #[derive(Clone, Debug, FromRow, Serialize)]
 pub struct User {
     pub username: String,
@@ -21,7 +23,7 @@ impl User {
         username: &str,
         old_password: &str,
         new_password: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), Error> {
         sqlx::query("UPDATE users SET password = ? WHERE username = ? AND password = ?")
             .bind(new_password)
             .bind(username)
@@ -31,11 +33,7 @@ impl User {
         Ok(())
     }
 
-    pub async fn insert(
-        db: &sqlx::MySqlPool,
-        username: &str,
-        password: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn insert(db: &sqlx::MySqlPool, username: &str, password: &str) -> Result<(), Error> {
         // check if the username exists, if it does, do nothing.
         if Self::get_by_username(db, username).await.is_some() {
             return Ok(());

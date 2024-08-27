@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.7"
+axum-extra = "0.9"
 axum-login = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 comrak = { git = "https://github.com/kivikakk/comrak", rev = "e30dd1e9b792a6743fe99c243f9a49b49832c4e6", features = [

@@ -23,12 +23,11 @@ use crate::{
     error::Error,
     handlers::{
         handler_404, handler_admin, handler_article, handler_articles, handler_change_pw_get,
-        handler_change_pw_post, handler_custom_page, handler_delete_article, handler_delete_page,
-        handler_edit_article_get, handler_edit_page_get, handler_edit_post, handler_feed,
-        handler_home, handler_login_get, handler_login_post, handler_logout, handler_page,
-        handler_ping, handler_tag, handler_tags, ArticleForm, PageForm,
+        handler_change_pw_post, handler_custom_page, handler_delete_post, handler_edit_article_get,
+        handler_edit_page_get, handler_edit_post, handler_feed, handler_home, handler_login_get,
+        handler_login_post, handler_logout, handler_page, handler_ping, handler_tag, handler_tags,
     },
-    models::{create_tables, Page, User},
+    models::{create_tables_within_transaction, Article, Page, User},
 };
 
 const TEMPLATES_DIR: &str = "templates";
@@ -54,7 +53,7 @@ impl AppState {
         let db = sqlx::MySqlPool::connect(&config.mysql_connection_url()?).await?;
         info!("initializing the database");
         // create the tables if they don't exist.
-        create_tables(&db).await?;
+        create_tables_within_transaction(&db).await?;
         // init the admin user.
         let admin_username = config.admin_username();
         User::insert(
@@ -64,7 +63,13 @@ impl AppState {
         )
         .await?;
 
-        info!("initializing the environment");
+        info!("building the environment");
+        let env = Self::build_env(&config)?;
+
+        Ok(Self { config, env, db })
+    }
+
+    fn build_env(config: &Config) -> Result<Environment<'static>, Error> {
         let mut env = Environment::new();
         // iterate the templates directory and add all the templates.
         for entry in std::fs::read_dir(TEMPLATES_DIR)? {
@@ -99,7 +104,7 @@ impl AppState {
             }
         });
 
-        Ok(Self { config, env, db })
+        Ok(env)
     }
 
     fn md_to_html(config: &Config, md_content: &str) -> String {
@@ -129,8 +134,6 @@ impl AppState {
     }
 }
 
-pub const CHANGE_PW_URL: &str = "/admin/change_password";
-
 pub struct App {
     state: AppState,
 }
@@ -154,29 +157,20 @@ impl App {
         let auth_layer = AuthManagerLayerBuilder::new(self.state.clone(), session_layer).build();
 
         let admin_router = Router::new()
-            .route("/admin", get(handler_admin))
-            .route(CHANGE_PW_URL, get(handler_change_pw_get))
-            .route(CHANGE_PW_URL, post(handler_change_pw_post))
-            .route("/admin/edit/article/new", get(handler_edit_article_get))
-            .route(
-                "/admin/edit/article/new",
-                post(handler_edit_post::<ArticleForm>),
-            )
-            .route("/admin/edit/article/:id", get(handler_edit_article_get))
-            .route(
-                "/admin/edit/article/:id",
-                post(handler_edit_post::<ArticleForm>),
-            )
-            .route("/admin/delete/article/:id", get(handler_delete_article))
-            .route("/admin/edit/page/new", get(handler_edit_page_get))
-            .route("/admin/edit/page/new", post(handler_edit_post::<PageForm>))
-            .route("/admin/edit/page/:id", get(handler_edit_page_get))
-            .route("/admin/edit/page/:id", post(handler_edit_post::<PageForm>))
-            .route("/admin/delete/page/:id", get(handler_delete_page))
-            .route("/logout", get(handler_logout))
-            .route_layer(login_required!(AppState, login_url = "/login"))
-            .route("/login", get(handler_login_get))
-            .route("/login", post(handler_login_post));
+            .route("/", get(handler_admin))
+            .route("/change_password", get(handler_change_pw_get))
+            .route("/change_password", post(handler_change_pw_post))
+            .route("/edit/article/new", get(handler_edit_article_get))
+            .route("/edit/article/new", post(handler_edit_post::<Article>))
+            .route("/edit/article/:id", get(handler_edit_article_get))
+            .route("/edit/article/:id", post(handler_edit_post::<Article>))
+            .route("/delete/article/:id", get(handler_delete_post::<Article>))
+            .route("/edit/page/new", get(handler_edit_page_get))
+            .route("/edit/page/new", post(handler_edit_post::<Page>))
+            .route("/edit/page/:id", get(handler_edit_page_get))
+            .route("/edit/page/:id", post(handler_edit_post::<Page>))
+            .route("/delete/page/:id", get(handler_delete_post::<Page>))
+            .route_layer(login_required!(AppState, login_url = "/login"));
 
         let app = Router::new()
             .fallback(handler_404)
@@ -192,7 +186,11 @@ impl App {
             .route("/feed", get(handler_feed))
             .route("/ping", get(handler_ping))
             .route("/:page", get(handler_custom_page))
-            .merge(admin_router)
+            .route("/login", get(handler_login_get))
+            .route("/login", post(handler_login_post))
+            .route("/logout", get(handler_logout))
+            // nest the admin router under the `/admin` path.
+            .nest("/admin", admin_router)
             .layer(auth_layer)
             .layer(
                 TraceLayer::new_for_http()

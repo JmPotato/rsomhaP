@@ -6,6 +6,9 @@
 <div class="post">
     <h1 id="title">Admin Panel</h1>
     <article>
+        {% if message %}
+        <div class="item"><p><strong>> {{ message }}</strong></p></div>
+        {% endif %}
         <p>Hello! {{ config.blog_author }}. Welcome back!
             <a href="/logout" onclick="return confirm('Are you sure to logout?');">Logout</a> &
             <a href="/admin/change_password">Change Password</a>

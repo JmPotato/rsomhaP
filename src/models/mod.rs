@@ -6,6 +6,8 @@ pub(crate) use articles::*;
 pub(crate) use pages::*;
 pub(crate) use users::*;
 
+use crate::Error;
+
 const CREATE_TABLE_ARTICLES_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS articles (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,10 +50,19 @@ CREATE TABLE IF NOT EXISTS users (
 ) CHARSET = utf8mb4;
 "#;
 
-pub async fn create_tables(db: &sqlx::MySqlPool) -> Result<(), sqlx::Error> {
-    sqlx::query(CREATE_TABLE_ARTICLES_SQL).execute(db).await?;
-    sqlx::query(CREATE_TABLE_TAGS_SQL).execute(db).await?;
-    sqlx::query(CREATE_TABLE_PAGES_SQL).execute(db).await?;
-    sqlx::query(CREATE_TABLE_USERS_SQL).execute(db).await?;
-    Ok(())
+pub async fn create_tables_within_transaction(db: &sqlx::MySqlPool) -> Result<(), Error> {
+    let mut tx = db.begin().await?;
+
+    sqlx::query(CREATE_TABLE_ARTICLES_SQL)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(CREATE_TABLE_TAGS_SQL).execute(&mut *tx).await?;
+    sqlx::query(CREATE_TABLE_PAGES_SQL)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(CREATE_TABLE_USERS_SQL)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await.map_err(|e| e.into())
 }

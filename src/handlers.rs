@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
-    async_trait,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{Query, State},
     http::{header::CONTENT_TYPE, Response, StatusCode},
     response::{Html, IntoResponse, Redirect},
     Form,
@@ -17,14 +12,20 @@ use chrono::Datelike;
 use minijinja::context;
 use rand::{thread_rng, Rng};
 use regex::Regex;
-use serde::{de::DeserializeOwned, Deserialize};
-use tracing::error;
+use serde::Deserialize;
+use tracing::{error, info};
 
 use crate::{
-    app::{AppState, CHANGE_PW_URL},
+    app::AppState,
     auth::Credentials,
     models::{Article, Page, Tags, User},
+    render_template_with_context,
+    utils::{Editable, EditorPath, Entity, Path},
+    Error,
 };
+
+const ADMIN_URL: &str = "/admin";
+const CHANGE_PW_URL: &str = "/admin/change_password";
 
 pub async fn handler_home(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     handler_page(state, Path(1)).await
@@ -46,18 +47,15 @@ pub async fn handler_page(
     }
     let articles = Article::get_on_page(&state.db, page_num as u32, article_per_page).await;
 
-    Ok(Html(
-        state
-            .render_template(
-                "home.html",
-                context! {
-                    articles => articles,
-                    total_article_count => total_article_count,
-                    page_num => page_num,
-                    max_page => max_page,
-                },
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "home.html",
+        context! {
+            articles => articles,
+            total_article_count => total_article_count,
+            page_num => page_num,
+            max_page => max_page,
+        },
     ))
 }
 
@@ -67,34 +65,31 @@ pub async fn handler_article(
     auth_session: AuthSession<AppState>,
 ) -> Result<Html<String>, StatusCode> {
     if let Some(article) = Article::get_by_id(&state.db, id).await {
-        return Ok(Html(
-            state
-                .render_template(
-                    "article.html",
-                    context! {
-                        article => article,
-                        tags => article
-                            .tags
-                            .split(',')
-                            .map(|s| s.trim().to_string())
-                            .collect::<Vec<String>>(),
-                        image => {
-                            // find all image URLs in the article markdown content and choose one randomly.
-                            let re = Regex::new(r"\!\[.*?\]\((.*?)\)").unwrap();
-                            let mut image_urls: Vec<String> = vec![];
-                            for (_, [image_url]) in re.captures_iter(&article.content).map(|c| c.extract()) {
-                                image_urls.push(image_url.to_string());
-                            }
-                            if image_urls.is_empty() {
-                                None
-                            } else {
-                                Some(image_urls[thread_rng().gen_range(0..image_urls.len())].clone())
-                            }
-                        },
-                        logged_in => auth_session.user.is_some(),
-                    },
-                )
-                .await,
+        return Ok(render_template_with_context!(
+            state,
+            "article.html",
+            context! {
+                article => article,
+                tags => article
+                    .tags
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect::<Vec<String>>(),
+                image => {
+                    // find all image URLs in the article markdown content and choose one randomly.
+                    let re = Regex::new(r"\!\[.*?\]\((.*?)\)").unwrap();
+                    let mut image_urls: Vec<String> = vec![];
+                    for (_, [image_url]) in re.captures_iter(&article.content).map(|c| c.extract()) {
+                        image_urls.push(image_url.to_string());
+                    }
+                    if image_urls.is_empty() {
+                        None
+                    } else {
+                        Some(image_urls[thread_rng().gen_range(0..image_urls.len())].clone())
+                    }
+                },
+                logged_in => auth_session.user.is_some(),
+            },
         ));
     }
     handler_404(State(state)).await
@@ -119,27 +114,48 @@ pub async fn handler_tag(
             acc
         },
     );
+    if articles_by_year.is_empty() {
+        return handler_404(State(state)).await;
+    }
     // sort `years` in descending order.
     years.sort_by(|a, b| b.cmp(a));
-    Ok(Html(
-        state
-            .render_template(
-                "tag.html",
-                context! {
-                    tag => tag,
-                    years => years,
-                    articles_by_year => articles_by_year,
-                },
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "tag.html",
+        context! {
+            tag => tag,
+            years => years,
+            articles_by_year => articles_by_year,
+        },
     ))
 }
 
-pub async fn handler_404(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
-    Ok(Html(state.render_template("404.html", context! {}).await))
+pub async fn handler_404(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    handler_error(
+        State(state),
+        Some("404".to_string()),
+        Some("Oops, page not found...".to_string()),
+    )
+    .await
 }
 
-pub async fn handler_articles(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+pub async fn handler_error(
+    State(state): State<Arc<AppState>>,
+    title: Option<String>,
+    message: Option<String>,
+) -> Result<Html<String>, StatusCode> {
+    Ok(render_template_with_context!(
+        state,
+        "error.html",
+        context! {
+            title => title.unwrap_or("Error".to_string()),
+            message => message.unwrap_or("Oops, it seems like something went wrong...".to_string()),
+        },
+    ))
+}
+pub async fn handler_articles(
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, StatusCode> {
     let mut years = vec![];
     // get all articles and map them by year.
     let articles_by_year =
@@ -157,26 +173,21 @@ pub async fn handler_articles(state: State<Arc<AppState>>) -> Result<Html<String
                 acc
             });
 
-    Ok(Html(
-        state
-            .render_template(
-                "articles.html",
-                context! {
-                years => years,
-                articles_by_year => articles_by_year,},
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "articles.html",
+        context! {
+            years => years,
+            articles_by_year => articles_by_year,
+        },
     ))
 }
 
-pub async fn handler_tags(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
-    Ok(Html(
-        state
-            .render_template(
-                "tags.html",
-                context! {tags => Tags::get_all_with_count(&state.db).await},
-            )
-            .await,
+pub async fn handler_tags(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    Ok(render_template_with_context!(
+        state,
+        "tags.html",
+        context! {tags => Tags::get_all_with_count(&state.db).await},
     ))
 }
 
@@ -189,24 +200,24 @@ pub async fn handler_custom_page(
         None => return handler_404(State(state)).await,
     };
 
-    Ok(Html(
-        state
-            .render_template("page.html", context! {page => page})
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "page.html",
+        context! {page => page},
     ))
 }
 
-pub async fn handler_feed(state: State<Arc<AppState>>) -> Response<Body> {
+pub async fn handler_feed(State(state): State<Arc<AppState>>) -> Response<Body> {
     let mut response = Response::new(Body::new(
-        state
-            .render_template(
-                "feed.xml",
-                context! {
-                    updated_at => Article::get_latest_updated(&state.db).await,
-                    articles => Article::get_all(&state.db).await,
-                },
-            )
-            .await,
+        render_template_with_context!(
+            state,
+            "feed.xml",
+            context! {
+                updated_at => Article::get_latest_updated(&state.db).await,
+                articles => Article::get_all(&state.db).await,
+            },
+        )
+        .0,
     ));
     response
         .headers_mut()
@@ -220,13 +231,13 @@ pub struct LoginQuery {
 }
 
 pub async fn handler_login_get(
-    state: State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<LoginQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    Ok(Html(
-        state
-            .render_template("login.html", context! {next => query.next})
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "login.html",
+        context! {next => query.next},
     ))
 }
 
@@ -260,7 +271,7 @@ pub async fn handler_login_post(
     if let Some(ref next) = credentials.next {
         Redirect::to(next)
     } else {
-        Redirect::to("/admin")
+        Redirect::to(ADMIN_URL)
     }
     .into_response()
 }
@@ -272,17 +283,23 @@ pub async fn handler_logout(mut auth_session: AuthSession<AppState>) -> impl Int
     }
 }
 
-pub async fn handler_admin(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
-    Ok(Html(
-        state
-            .render_template(
-                "admin.html",
-                context! {
-                    pages => Page::get_all(&state.db).await,
-                    articles => Article::get_all(&state.db).await,
-                },
-            )
-            .await,
+#[derive(Deserialize)]
+pub struct AdminQuery {
+    message: Option<String>,
+}
+
+pub async fn handler_admin(
+    State(state): State<Arc<AppState>>,
+    Query(admin_query): Query<AdminQuery>,
+) -> Result<Html<String>, StatusCode> {
+    Ok(render_template_with_context!(
+        state,
+        "admin.html",
+        context! {
+            message => admin_query.message,
+            pages => Page::get_all(&state.db).await,
+            articles => Article::get_all(&state.db).await,
+        },
     ))
 }
 
@@ -292,16 +309,13 @@ pub struct ChangePasswordQuery {
 }
 
 pub async fn handler_change_pw_get(
-    state: State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(change_pw_query): Query<ChangePasswordQuery>,
 ) -> Result<Html<String>, StatusCode> {
-    Ok(Html(
-        state
-            .render_template(
-                "change_pw.html",
-                context! {message => change_pw_query.message},
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "change_pw.html",
+        context! {message => change_pw_query.message},
     ))
 }
 
@@ -312,7 +326,7 @@ pub struct ChangePasswordForm {
 }
 
 pub async fn handler_change_pw_post(
-    state: State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     auth_session: AuthSession<AppState>,
     Form(change_pw_form): Form<ChangePasswordForm>,
 ) -> impl IntoResponse {
@@ -349,7 +363,7 @@ pub async fn handler_change_pw_post(
     )
     .await
     {
-        Ok(_) => Redirect::to("/admin"),
+        Ok(_) => Redirect::to(ADMIN_URL),
         Err(_) => redirect_with_message(
             CHANGE_PW_URL,
             "Failed to update the password, please try again.",
@@ -362,13 +376,8 @@ fn redirect_with_message(url: &str, message: &str) -> Redirect {
     Redirect::to(format!("{}?message={}", url, message).as_str())
 }
 
-#[derive(Debug, Deserialize)]
-pub struct EditorPath {
-    id: Option<i32>,
-}
-
 pub async fn handler_edit_article_get(
-    state: State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(editor_path): Path<EditorPath>,
 ) -> Result<Html<String>, StatusCode> {
     let article = match editor_path.id {
@@ -376,21 +385,18 @@ pub async fn handler_edit_article_get(
         None => None,
     };
 
-    Ok(Html(
-        state
-            .render_template(
-                "editor.html",
-                context! {
-                    article => article,
-                    is_page => false,
-                },
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "editor.html",
+        context! {
+            article => article,
+            is_page => false,
+        },
     ))
 }
 
 pub async fn handler_edit_page_get(
-    state: State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(editor_path): Path<EditorPath>,
 ) -> Result<Html<String>, StatusCode> {
     let page = match editor_path.id {
@@ -398,140 +404,61 @@ pub async fn handler_edit_page_get(
         None => None,
     };
 
-    Ok(Html(
-        state
-            .render_template(
-                "editor.html",
-                context! {
-                    article => page,
-                    is_page => true,
-                },
-            )
-            .await,
+    Ok(render_template_with_context!(
+        state,
+        "editor.html",
+        context! {
+            article => page,
+            is_page => true,
+        },
     ))
-}
-
-#[async_trait]
-pub trait Editable: DeserializeOwned + Display {
-    type Output;
-
-    fn get_redirect_url(output: &Self::Output) -> String;
-    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error>;
-    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error>;
 }
 
 pub async fn handler_edit_post<T: Editable>(
     State(state): State<Arc<AppState>>,
-    Path(editor_path): Path<EditorPath>,
-    Form(editor_form): Form<T>,
+    Entity { entity, is_new }: Entity<T>,
 ) -> impl IntoResponse {
-    let result = match editor_path.id {
-        Some(id) => editor_form.handle_update(&state, id).await,
-        None => editor_form.handle_insert(&state).await,
+    let result = if is_new {
+        info!("inserting {}", entity);
+        entity.insert(&state.db).await
+    } else {
+        info!("updating {}", entity);
+        entity.update(&state.db).await
     };
 
     match result {
         Ok(output) => Redirect::to(T::get_redirect_url(&output).as_str()),
         Err(err) => {
-            error!("failed processing {}: {:?}", editor_form, err);
-            Redirect::to("/admin")
+            error!("failed processing {}: {:?}", entity, err);
+            match err {
+                Error::PageTitleExists(title) => redirect_with_message(
+                    ADMIN_URL,
+                    &format!(
+                        "Page with title '{}' (whose URL is also '/{}') already exists.",
+                        title,
+                        title.to_lowercase()
+                    ),
+                ),
+                _ => redirect_with_message(
+                    ADMIN_URL,
+                    "Failed to save the changes, please try again.",
+                ),
+            }
         }
     }
     .into_response()
 }
 
-#[derive(Deserialize)]
-pub struct ArticleForm {
-    title: String,
-    tags: String,
-    content: String,
-}
-
-impl Display for ArticleForm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "article title: {}, tags: {}", self.title, self.tags)
-    }
-}
-
-#[async_trait]
-impl Editable for ArticleForm {
-    type Output = Article;
-
-    fn get_redirect_url(output: &Self::Output) -> String {
-        format!("/article/{}", output.id)
-    }
-
-    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error> {
-        Article::update(&state.db, id, &self.title, &self.content, &self.tags).await
-    }
-
-    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error> {
-        Article::insert(&state.db, &self.title, &self.content, &self.tags).await
-    }
-}
-
-#[derive(Deserialize)]
-pub struct PageForm {
-    title: String,
-    content: String,
-}
-
-impl Display for PageForm {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "page title: {}", self.title)
-    }
-}
-
-#[async_trait]
-impl Editable for PageForm {
-    type Output = Page;
-
-    fn get_redirect_url(output: &Self::Output) -> String {
-        format!("/{}", output.title.to_lowercase())
-    }
-
-    async fn handle_update(&self, state: &AppState, id: i32) -> Result<Self::Output, sqlx::Error> {
-        Page::update(&state.db, id, &self.title, &self.content).await
-    }
-
-    async fn handle_insert(&self, state: &AppState) -> Result<Self::Output, sqlx::Error> {
-        Page::insert(&state.db, &self.title, &self.content).await
-    }
-}
-
-pub async fn handler_delete_article(
-    state: State<Arc<AppState>>,
-    Path(editor_path): Path<EditorPath>,
+pub async fn handler_delete_post<T: Editable>(
+    State(state): State<Arc<AppState>>,
+    Entity { entity, .. }: Entity<T>,
 ) -> impl IntoResponse {
-    let redirect = Redirect::to("/admin");
-    let id = match editor_path.id {
-        Some(id) => id,
-        None => return redirect.into_response(),
-    };
-    match Article::delete(&state.db, id).await {
-        Ok(_) => redirect,
+    info!("deleting {}", entity);
+    match entity.delete(&state.db).await {
+        Ok(()) => Redirect::to(ADMIN_URL),
         Err(err) => {
-            error!("failed deleting article: {:?}", err);
-            redirect
-        }
-    }
-    .into_response()
-}
-
-pub async fn handler_delete_page(
-    state: State<Arc<AppState>>,
-    Path(editor_path): Path<EditorPath>,
-) -> impl IntoResponse {
-    let redirect = Redirect::to("/admin");
-    let id = match editor_path.id {
-        Some(id) => id,
-        None => return redirect.into_response(),
-    };
-    match Page::delete(&state.db, id).await {
-        Ok(_) => redirect,
-        Err(err) => {
-            error!("failed deleting page: {:?}", err);
-            redirect
+            error!("failed deleting {}: {:?}", entity, err);
+            redirect_with_message(ADMIN_URL, "Failed to delete, please try again.")
         }
     }
     .into_response()
