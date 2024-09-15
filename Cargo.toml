@@ -4,31 +4,29 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7"
-axum-extra = "0.9"
-axum-login = "0.15"
-chrono = { version = "0.4", features = ["serde"] }
-comrak = { git = "https://github.com/kivikakk/comrak", rev = "e30dd1e9b792a6743fe99c243f9a49b49832c4e6", features = [
-    "syntect",
-] }
-minijinja = { version = "2.1", features = ["loader"] }
+axum = "0.7.5"
+axum-extra = "0.9.3"
+axum-login = "0.16.0"
+chrono = { version = "0.4.38", features = ["serde"] }
+comrak = { version = "0.28.0", features = ["syntect"] }
+minijinja = { version = "2.2.0", features = ["loader"] }
 password-auth = "1.0.0"
-rand = "0.8"
-regex = "1.10"
-serde = { version = "1.0", features = ["derive"] }
-sqlx = { version = "0.8", features = [
+rand = "0.8.5"
+regex = "1.10.6"
+serde = { version = "1.0.210", features = ["derive"] }
+sqlx = { version = "0.8.2", features = [
     "runtime-tokio",
     "mysql",
     "chrono",
     "tls-rustls",
 ] }
 thiserror = "1.0.63"
-tokio = { version = "1.0", features = ["full"] }
-toml = "0.8"
-tower-http = { version = "0.5", features = ["fs", "trace"] }
-tower-sessions = { version = "0.12", default-features = false, features = [
+tokio = { version = "1.40.0", features = ["full"] }
+toml = "0.8.19"
+tower-http = { version = "0.5.2", features = ["fs", "trace"] }
+tower-sessions = { version = "0.13.0", default-features = false, features = [
     "signed",
 ] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-url = "2.5"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+url = "2.5.2"
