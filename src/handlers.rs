@@ -208,17 +208,7 @@ pub async fn handler_custom_page(
 }
 
 pub async fn handler_feed(State(state): State<Arc<AppState>>) -> Response<Body> {
-    let mut response = Response::new(Body::new(
-        render_template_with_context!(
-            state,
-            "feed.xml",
-            context! {
-                updated_at => Article::get_latest_updated(&state.db).await,
-                articles => Article::get_all(&state.db).await,
-            },
-        )
-        .0,
-    ));
+    let mut response = Response::new(Body::new(state.get_feed_cache().await));
     response
         .headers_mut()
         .insert(CONTENT_TYPE, "text/xml; charset=utf-8".parse().unwrap());
@@ -427,7 +417,10 @@ pub async fn handler_edit_post<T: Editable>(
     };
 
     match result {
-        Ok(output) => Redirect::to(T::get_redirect_url(&output).as_str()),
+        Ok(output) => {
+            state.refresh_feed_cache(false).await;
+            Redirect::to(T::get_redirect_url(&output).as_str())
+        }
         Err(err) => {
             error!("failed processing {}: {:?}", entity, err);
             match err {
@@ -455,7 +448,10 @@ pub async fn handler_delete_post<T: Editable>(
 ) -> impl IntoResponse {
     info!("deleting {}", entity);
     match entity.delete(&state.db).await {
-        Ok(()) => Redirect::to(ADMIN_URL),
+        Ok(()) => {
+            state.refresh_feed_cache(true).await;
+            Redirect::to(ADMIN_URL)
+        }
         Err(err) => {
             error!("failed deleting {}: {:?}", entity, err);
             redirect_with_message(ADMIN_URL, "Failed to delete, please try again.")

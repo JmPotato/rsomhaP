@@ -9,8 +9,10 @@ use axum_login::{
     tower_sessions::{cookie::time::Duration, Expiry, MemoryStore, SessionManagerLayer},
     AuthManagerLayerBuilder,
 };
+use chrono::{DateTime, Utc};
 use comrak::{markdown_to_html_with_plugins, plugins::syntect, Options, Plugins};
 use minijinja::{context, Environment, Value};
+use tokio::sync::RwLock;
 use tower_http::{
     services::ServeDir,
     trace::{self, TraceLayer},
@@ -41,6 +43,8 @@ pub struct AppState {
     pub config: Config,
     pub env: Environment<'static>,
     pub db: sqlx::MySqlPool,
+    // Cache the feed content to reduce the database query.
+    pub feed_cache: Arc<RwLock<(DateTime<Utc>, Option<String>)>>,
 }
 
 impl AppState {
@@ -66,7 +70,15 @@ impl AppState {
         info!("building the environment");
         let env = Self::build_env(&config)?;
 
-        Ok(Self { config, env, db })
+        let state = Self {
+            config,
+            env,
+            db,
+            feed_cache: Arc::new(RwLock::new((Default::default(), None))),
+        };
+        state.refresh_feed_cache(true).await;
+
+        Ok(state)
     }
 
     fn build_env(config: &Config) -> Result<Environment<'static>, Error> {
@@ -105,6 +117,39 @@ impl AppState {
         });
 
         Ok(env)
+    }
+
+    pub async fn refresh_feed_cache(&self, force: bool) {
+        let mut feed_cache = self.feed_cache.write().await;
+        // Get the latest updated time of the articles.
+        let article_latest_updated = Article::get_latest_updated(&self.db)
+            .await
+            .unwrap_or_default();
+        // No need to update
+        if article_latest_updated <= feed_cache.0 && !force && feed_cache.1.is_some() {
+            return;
+        }
+        feed_cache.0 = article_latest_updated;
+        feed_cache.1 = Some(
+            self.render_template(
+                "feed.xml",
+                context! {
+                    updated_at => article_latest_updated,
+                    articles => Article::get_all(&self.db).await,
+                },
+            )
+            .await,
+        );
+        info!(
+            "feed cache updated at {}, latest article updated at {}",
+            Utc::now(),
+            article_latest_updated
+        );
+    }
+
+    pub async fn get_feed_cache(&self) -> String {
+        let feed_cache = self.feed_cache.read().await;
+        feed_cache.1.clone().unwrap_or_default()
     }
 
     fn md_to_html(config: &Config, md_content: &str) -> String {
