@@ -464,6 +464,20 @@ pub async fn handler_delete_post<T: Editable>(
     .into_response()
 }
 
-pub async fn handler_ping() -> impl IntoResponse {
-    "pong"
+pub async fn handler_ping(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Check if the database connection is alive.
+    if state.db.is_closed() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Database connection is closed".to_string(),
+        );
+    }
+    // Check if the database read can be performed.
+    if let Err(err) = User::try_check_initialization(&state.db).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read from the database: {:?}", err),
+        );
+    }
+    (StatusCode::OK, "pong".to_string())
 }

@@ -46,4 +46,12 @@ impl User {
             .await?;
         Ok(())
     }
+
+    pub async fn try_check_initialization(db: &sqlx::MySqlPool) -> Result<(), Error> {
+        sqlx::query("SELECT * FROM users LIMIT 1")
+            .fetch_one(db)
+            .await
+            .map_err(|e| e.into())
+            .map(|_| ())
+    }
 }
