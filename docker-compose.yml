@@ -1,0 +1,9 @@
+version: "3"
+
+services:
+  rsomhap:
+    build: .
+    image: rsomhap:latest
+    container_name: rsomhap
+    ports:
+      - "5299:5299"
