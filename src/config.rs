@@ -101,6 +101,7 @@ impl Object for Giscus {
 pub struct Analytics {
     google: Option<String>,
     plausible: Option<String>,
+    umami: Option<String>,
 }
 
 impl Object for Analytics {
@@ -108,12 +109,13 @@ impl Object for Analytics {
         match key.as_str()? {
             "google" => Some(Value::from(self.google.clone())),
             "plausible" => Some(Value::from(self.plausible.clone())),
+            "umami" => Some(Value::from(self.umami.clone())),
             _ => None,
         }
     }
 
     fn enumerate(self: &Arc<Self>) -> Enumerator {
-        Enumerator::Str(&["google", "plausible"])
+        Enumerator::Str(&["google", "plausible", "umami"])
     }
 }
 
@@ -167,6 +169,9 @@ impl Config {
         }
         if let Ok(plausible_domain) = std::env::var("PLAUSIBLE_DOMAIN") {
             self.analytics.plausible = Some(plausible_domain);
+        }
+        if let Ok(umami_id) = std::env::var("UMAMI_ID") {
+            self.analytics.umami = Some(umami_id);
         }
         Ok(())
     }

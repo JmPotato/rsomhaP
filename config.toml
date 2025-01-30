@@ -53,6 +53,8 @@ theme = "light"
 # google = "G-XXXXXXXXXX"
 # https://plausible.io
 # plausible = "data.domain"
+# https://umami.is
+# umami = "8d3fde60-xxxx-xxxx-xxxx-b89e7cic209c"
 
 [twitter_card]
 enabled = false
