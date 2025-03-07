@@ -85,7 +85,7 @@ samp {
 }
 
 q {
-  quotes: "\201C""\201D""\2018""\2019";
+  quotes: "\201C" "\201D" "\2018" "\2019";
 }
 
 small {
@@ -353,7 +353,7 @@ table {
   text-align: center;
 }
 
-#content .post > .date {
+#content .post>.date {
   text-align: center;
 }
 
@@ -397,6 +397,10 @@ table {
 #login input,
 #change_pw input {
   text-align: center;
+}
+
+#article_editor input {
+  width: 100%;
 }
 
 #footer {

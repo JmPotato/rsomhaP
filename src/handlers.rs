@@ -61,10 +61,16 @@ pub async fn handler_page(
 
 pub async fn handler_article(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<i32>,
+    Path(id_or_slug): Path<String>,
     auth_session: AuthSession<AppState>,
 ) -> Result<Html<String>, StatusCode> {
-    if let Some(article) = Article::get_by_id(&state.db, id).await {
+    if let Some(article) = if let Ok(id) = id_or_slug.parse::<i32>() {
+        info!("try to get article by id: {}", id);
+        Article::get_by_id(&state.db, id).await
+    } else {
+        info!("try to get article by slug: {}", id_or_slug);
+        Article::get_by_slug(&state.db, &id_or_slug).await
+    } {
         return Ok(render_template_with_context!(
             state,
             "article.html",

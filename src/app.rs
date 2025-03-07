@@ -115,6 +115,14 @@ impl AppState {
                 format!("{}/{}", value, uri)
             }
         });
+        env.add_filter("get_slug", |value: &Value| {
+            let slug = value.get_attr("slug").unwrap_or_default().to_string();
+            if slug.is_empty() {
+                value.get_attr("id").unwrap_or_default().to_string()
+            } else {
+                slug
+            }
+        });
 
         Ok(env)
     }
@@ -224,7 +232,7 @@ impl App {
             // serve the page handlers
             .route("/", get(handler_home))
             .route("/page/:num", get(handler_page))
-            .route("/article/:id", get(handler_article))
+            .route("/article/:id_or_slug", get(handler_article))
             .route("/articles", get(handler_articles))
             .route("/tag/:tag", get(handler_tag))
             .route("/tags", get(handler_tags))

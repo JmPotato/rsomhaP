@@ -25,6 +25,10 @@
             </div>
             {% if not is_page %}
             <div class="input">
+                <label for="slug">Slug</label>
+                <input id="slug" name="slug" type="text" style="width:100%;" value="{{ article.slug }}">
+            </div>
+            <div class="input">
                 <label for="tags">Tags</label>
                 <input id="tags" name="tags" type="text" style="width:100%;" value="{{ article.tags }}">
             </div>

@@ -60,7 +60,7 @@
                     {% for article in articles %}
                     <tr>
                         <td>{{ article.id }}</td>
-                        <td><a href="/article/{{ article.id }}">{{ article.title }}</a></td>
+                        <td><a href="/article/{{ article | get_slug }}">{{ article.title }}</a></td>
                         <td>{{ article.created_at }}</td>
                         <td>{{ article.updated_at }}</td>
                         <td>
