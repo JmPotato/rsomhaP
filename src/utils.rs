@@ -67,6 +67,7 @@ pub struct EditorPath {
 #[derive(Deserialize)]
 pub struct EditorForm {
     pub id: Option<i32>,
+    pub slug: Option<String>,
     pub title: Option<String>,
     pub tags: Option<String>,
     pub content: Option<String>,

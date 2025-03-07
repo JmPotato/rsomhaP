@@ -15,10 +15,10 @@
             <name>{{ config.blog_author }}</name>
             <uri>{{ config.blog_url }}</uri>
         </author>
-        <link href="{{ config.blog_url | concat_url('article') }}/{{ article.id }}"/>
+        <link href="{{ config.blog_url | concat_url('article') }}/{{ article | get_slug }}"/>
         <published>{{ article.created_at }}</published>
         <updated>{{ article.updated_at }}</updated>
-        <id>{{ config.blog_url | concat_url('article') }}/{{ article.id }}</id>
+        <id>{{ config.blog_url | concat_url('article') }}/{{ article | get_slug }}</id>
         <content type="html">
             <![CDATA[{% autoescape false %}{{ article.content | md_to_html }}{% endautoescape %}]]>
         </content>

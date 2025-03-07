@@ -14,6 +14,7 @@ use crate::{
 #[derive(FromRow, Serialize, Deserialize, Default)]
 pub struct Article {
     id: Option<i32>,
+    slug: String,
     title: String,
     pub content: String,
     pub tags: String,
@@ -22,11 +23,12 @@ pub struct Article {
 }
 
 impl Article {
+    // TODO: refine the error result handling.
     pub async fn get_all(db: &sqlx::MySqlPool) -> Vec<Self> {
         sqlx::query_as("SELECT * FROM articles ORDER BY id DESC")
             .fetch_all(db)
             .await
-            .unwrap_or_default()
+            .unwrap()
     }
 
     pub async fn get_on_page(db: &sqlx::MySqlPool, page: u32, article_per_page: u32) -> Vec<Self> {
@@ -35,14 +37,14 @@ impl Article {
             .bind((page - 1) * article_per_page)
             .fetch_all(db)
             .await
-            .unwrap_or_default()
+            .unwrap()
     }
 
     pub async fn get_total_count(db: &sqlx::MySqlPool) -> i32 {
         sqlx::query_scalar("SELECT COUNT(*) FROM articles")
             .fetch_one(db)
             .await
-            .unwrap_or_default()
+            .unwrap()
     }
 
     pub async fn get_by_id(db: &sqlx::MySqlPool, id: i32) -> Option<Self> {
@@ -53,9 +55,17 @@ impl Article {
             .ok()
     }
 
+    pub async fn get_by_slug(db: &sqlx::MySqlPool, slug: &str) -> Option<Self> {
+        sqlx::query_as("SELECT * FROM articles WHERE slug = ?")
+            .bind(slug)
+            .fetch_one(db)
+            .await
+            .ok()
+    }
+
     pub async fn get_by_tag(db: &sqlx::MySqlPool, tag: &str) -> Vec<Self> {
         sqlx::query_as(
-            "SELECT a.id, a.title, a.content, a.tags, a.created_at, a.updated_at
+            "SELECT a.id, a.slug, a.title, a.content, a.tags, a.created_at, a.updated_at
              FROM articles AS a
              INNER JOIN tags AS t ON a.id = t.article_id
              WHERE t.name = ?
@@ -103,9 +113,12 @@ impl Display for Article {
 #[async_trait]
 impl Editable for Article {
     fn get_redirect_url(&self) -> String {
-        match self.id {
-            Some(id) => format!("/article/{}", id),
-            None => "/".to_string(),
+        if !self.slug.is_empty() {
+            format!("/article/{}", self.slug)
+        } else if let Some(id) = self.id {
+            format!("/article/{}", id)
+        } else {
+            "/".to_string()
         }
     }
 
@@ -119,8 +132,9 @@ impl Editable for Article {
 
         // update the articles table
         sqlx::query(
-            "UPDATE articles SET title = ?, content = ?, tags = ?, updated_at = NOW() WHERE id = ?",
+            "UPDATE articles SET slug = ?, title = ?, content = ?, tags = ?, updated_at = NOW() WHERE id = ?",
         )
+        .bind(&self.slug)
         .bind(&self.title)
         .bind(&self.content)
         .bind(&self.tags)
@@ -189,9 +203,23 @@ impl Editable for Article {
 
 impl From<EditorForm> for Article {
     fn from(from: EditorForm) -> Self {
+        // Normalize the slug by replacing the whitespace with hyphen.
+        let slug = from
+            .slug
+            .unwrap_or_default()
+            .trim()
+            .chars()
+            .map(|c| {
+                if c.is_whitespace() {
+                    '-'
+                } else {
+                    c.to_ascii_lowercase()
+                }
+            })
+            .collect();
         Article {
             id: from.id,
-            // trim the title and tags to remove leading and trailing whitespace and commas
+            slug,
             title: from.title.unwrap_or_default().trim().to_string(),
             tags: sort_out_tags(&from.tags.unwrap_or_default()),
             content: from.content.unwrap_or_default(),
