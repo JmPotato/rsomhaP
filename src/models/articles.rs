@@ -25,14 +25,14 @@ pub struct Article {
 impl Article {
     // TODO: refine the error result handling.
     pub async fn get_all(db: &sqlx::MySqlPool) -> Vec<Self> {
-        sqlx::query_as("SELECT * FROM articles ORDER BY id DESC")
+        sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles ORDER BY id DESC")
             .fetch_all(db)
             .await
             .unwrap_or_default()
     }
 
     pub async fn get_on_page(db: &sqlx::MySqlPool, page: u32, article_per_page: u32) -> Vec<Self> {
-        sqlx::query_as("SELECT * FROM articles ORDER BY id DESC LIMIT ? OFFSET ?")
+        sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles ORDER BY id DESC LIMIT ? OFFSET ?")
             .bind(article_per_page)
             .bind((page - 1) * article_per_page)
             .fetch_all(db)
@@ -48,7 +48,7 @@ impl Article {
     }
 
     pub async fn get_by_id(db: &sqlx::MySqlPool, id: i32) -> Option<Self> {
-        sqlx::query_as("SELECT * FROM articles WHERE id = ?")
+        sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles WHERE id = ?")
             .bind(id)
             .fetch_one(db)
             .await
@@ -56,7 +56,7 @@ impl Article {
     }
 
     pub async fn get_by_slug(db: &sqlx::MySqlPool, slug: &str) -> Option<Self> {
-        sqlx::query_as("SELECT * FROM articles WHERE slug = ?")
+        sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles WHERE slug = ?")
             .bind(slug)
             .fetch_one(db)
             .await

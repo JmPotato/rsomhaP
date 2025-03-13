@@ -11,7 +11,7 @@ pub struct User {
 
 impl User {
     pub async fn get_by_username(db: &sqlx::MySqlPool, username: &str) -> Option<Self> {
-        sqlx::query_as("SELECT * FROM users WHERE username = ?")
+        sqlx::query_as("SELECT username, password FROM users WHERE username = ?")
             .bind(username)
             .fetch_one(db)
             .await
@@ -48,7 +48,7 @@ impl User {
     }
 
     pub async fn try_check_initialization(db: &sqlx::MySqlPool) -> Result<(), Error> {
-        sqlx::query("SELECT * FROM users LIMIT 1")
+        sqlx::query("SELECT username, password FROM users LIMIT 1")
             .fetch_one(db)
             .await
             .map_err(|e| e.into())

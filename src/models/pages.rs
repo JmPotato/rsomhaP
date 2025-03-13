@@ -21,10 +21,12 @@ pub struct Page {
 
 impl Page {
     pub async fn get_all(db: &sqlx::MySqlPool) -> Vec<Self> {
-        sqlx::query_as("SELECT * FROM pages ORDER BY id DESC")
-            .fetch_all(db)
-            .await
-            .unwrap_or_default()
+        sqlx::query_as(
+            "SELECT id, title, content, created_at, updated_at FROM pages ORDER BY id DESC",
+        )
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
     }
 
     pub async fn get_all_titles(db: &sqlx::MySqlPool) -> Vec<String> {
@@ -35,7 +37,7 @@ impl Page {
     }
 
     pub async fn get_by_id(db: &sqlx::MySqlPool, id: i32) -> Option<Self> {
-        sqlx::query_as("SELECT * FROM pages WHERE id = ?")
+        sqlx::query_as("SELECT id, title, content, created_at, updated_at FROM pages WHERE id = ?")
             .bind(id)
             .fetch_one(db)
             .await
@@ -44,7 +46,7 @@ impl Page {
 
     pub async fn get_by_title(db: &sqlx::MySqlPool, title: &str) -> Option<Self> {
         // check the lowercase version of the title
-        sqlx::query_as("SELECT * FROM pages WHERE LOWER(title) = LOWER(?)")
+        sqlx::query_as("SELECT id, title, content, created_at, updated_at FROM pages WHERE LOWER(title) = LOWER(?)")
             .bind(title)
             .fetch_one(db)
             .await

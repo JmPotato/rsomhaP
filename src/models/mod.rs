@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS tags (
     article_id INT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX(name)
+    INDEX(name),
+    INDEX(article_id)
 ) CHARSET = utf8mb4;
 "#;
 
