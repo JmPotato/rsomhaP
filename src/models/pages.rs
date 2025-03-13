@@ -1,6 +1,5 @@
 use std::fmt::{self, Display};
 
-use axum::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
@@ -78,7 +77,6 @@ impl Display for Page {
     }
 }
 
-#[async_trait]
 impl Editable for Page {
     fn get_redirect_url(&self) -> String {
         format!("/{}", self.title.to_lowercase())

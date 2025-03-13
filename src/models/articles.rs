@@ -1,6 +1,5 @@
 use std::fmt::{self, Display};
 
-use axum::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
@@ -110,7 +109,6 @@ impl Display for Article {
     }
 }
 
-#[async_trait]
 impl Editable for Article {
     fn get_redirect_url(&self) -> String {
         if !self.slug.is_empty() {

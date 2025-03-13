@@ -1,7 +1,6 @@
 use std::{collections::HashSet, fmt::Display, sync::Arc};
 
 use axum::{
-    async_trait,
     extract::{rejection::PathRejection, FromRef, FromRequest, FromRequestParts, Request},
     http::request::Parts,
     response::Html,
@@ -27,7 +26,6 @@ macro_rules! render_template_with_context {
 // A wrapper for `axum::extract::Path` that can render a 404 page if the path is rejected.
 pub struct Path<T>(pub T);
 
-#[async_trait]
 impl<S, T> FromRequestParts<S> for Path<T>
 where
     Arc<AppState>: FromRef<S>,
@@ -73,7 +71,6 @@ pub struct EditorForm {
     pub content: Option<String>,
 }
 
-#[async_trait]
 pub trait Editable: DeserializeOwned + Display {
     fn get_redirect_url(&self) -> String;
     async fn update(&self, db: &sqlx::MySqlPool) -> Result<Self, Error>;
@@ -86,7 +83,6 @@ pub struct Entity<T> {
     pub is_new: bool,
 }
 
-#[async_trait]
 impl<S, T> FromRequest<S> for Entity<T>
 where
     Arc<AppState>: FromRef<S>,

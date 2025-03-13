@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use axum_login::{AuthUser, AuthnBackend, UserId};
 use serde::Deserialize;
 use tokio::task;
@@ -36,7 +36,7 @@ impl AuthnBackend for AppState {
     ) -> Result<Option<Self::User>, Self::Error> {
         let user = User::get_by_username(&self.db, &creds.username).await;
         // Verifying the password is blocking and potentially slow, so we'll do so via
-        // `spawn_blocking`.
+        // `spawn_blocking` so it can be yielded to the runtime.
         task::spawn_blocking(|| {
             // We're using password-based authentication--this works by comparing our form
             // input with an argon2 password hash.

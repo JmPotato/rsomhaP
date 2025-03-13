@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7.5"
+async-trait = "0.1.87"
+axum = "0.8.1"
 axum-extra = "0.9.3"
-axum-login = "0.16.0"
+axum-login = { version = "0.17.0" }
 chrono = { version = "0.4.38", features = ["serde"] }
 comrak = { version = "0.28.0", features = ["syntect"] }
 minijinja = { version = "2.2.0", features = ["loader"] }
@@ -24,7 +25,7 @@ thiserror = "1.0.63"
 tokio = { version = "1.40.0", features = ["full"] }
 toml = "0.8.19"
 tower-http = { version = "0.5.2", features = ["fs", "trace"] }
-tower-sessions = { version = "0.13.0", default-features = false, features = [
+tower-sessions = { version = "0.14.0", default-features = false, features = [
     "signed",
 ] }
 tracing = "0.1.40"
