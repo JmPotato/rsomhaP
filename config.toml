@@ -22,7 +22,7 @@ article_per_page = 15
 # - `base16-ocean.dark`,`base16-eighties.dark`,`base16-mocha.dark`,`base16-ocean.light`
 # - `InspiredGitHub` from [here](https://github.com/sethlopezme/InspiredGitHub.tmtheme)
 # - `Solarized (dark)` and `Solarized (light)`
-code_syntax_highlight_theme = "base16-ocean.light"
+code_syntax_highlight_theme = "base16-eighties.dark"
 
 [mysql]
 # If `connection_url` is set, other connection-related configs will be ignored.
