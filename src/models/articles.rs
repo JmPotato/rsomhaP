@@ -39,7 +39,7 @@ impl Article {
             .unwrap_or_default()
     }
 
-    pub async fn get_total_count(db: &sqlx::MySqlPool) -> i32 {
+    pub async fn get_total_count(db: &sqlx::MySqlPool) -> i64 {
         sqlx::query_scalar("SELECT COUNT(*) FROM articles")
             .fetch_one(db)
             .await
@@ -148,7 +148,9 @@ impl Editable for Article {
 
         tx.commit().await?;
 
-        Ok(Self::get_by_id(db, id).await.unwrap())
+        Ok(Self::get_by_id(db, id)
+            .await
+            .ok_or(sqlx::Error::RowNotFound)?)
     }
 
     async fn insert(&self, db: &sqlx::MySqlPool) -> Result<Self, Error> {
@@ -156,8 +158,9 @@ impl Editable for Article {
 
         // insert into the articles table
         sqlx::query(
-            "INSERT INTO articles (title, content, tags, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())",
+            "INSERT INTO articles (slug, title, content, tags, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())",
         )
+        .bind(&self.slug)
         .bind(&self.title)
         .bind(&self.content)
         .bind(&self.tags)
@@ -174,7 +177,9 @@ impl Editable for Article {
 
         tx.commit().await?;
 
-        Ok(Self::get_by_id(db, id).await.unwrap())
+        Ok(Self::get_by_id(db, id)
+            .await
+            .ok_or(sqlx::Error::RowNotFound)?)
     }
 
     async fn delete(&self, db: &sqlx::MySqlPool) -> Result<(), Error> {
@@ -256,5 +261,155 @@ impl Tags {
                 .await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::create_tables_within_transaction;
+    use crate::utils::EditorForm;
+
+    async fn get_test_pool() -> Option<sqlx::MySqlPool> {
+        let url = std::env::var("TEST_DATABASE_URL").ok()?;
+        Some(sqlx::MySqlPool::connect(&url).await.unwrap())
+    }
+
+    /// Ensures tables exist and clears article/tag data for a clean test.
+    async fn setup(pool: &sqlx::MySqlPool) {
+        create_tables_within_transaction(pool).await.unwrap();
+        sqlx::query("DELETE FROM tags")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM articles")
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    fn make_article(slug: Option<&str>, title: &str, tags: &str, content: &str) -> Article {
+        Article::from(EditorForm {
+            id: None,
+            slug: slug.map(|s| s.to_string()),
+            title: Some(title.to_string()),
+            tags: Some(tags.to_string()),
+            content: Some(content.to_string()),
+        })
+    }
+
+    // --- insert slug handling ---
+
+    #[tokio::test]
+    async fn test_insert_preserves_slug() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        setup(&pool).await;
+
+        let article = make_article(Some("my-first-post"), "First Post", "rust", "Hello");
+        let inserted = article.insert(&pool).await.unwrap();
+
+        // Slug should be persisted.
+        let fetched = Article::get_by_slug(&pool, "my-first-post").await;
+        assert!(fetched.is_some(), "should be retrievable by slug");
+        assert_eq!(fetched.unwrap().id, inserted.id);
+    }
+
+    #[tokio::test]
+    async fn test_insert_empty_slug() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        setup(&pool).await;
+
+        let article = make_article(None, "No Slug Post", "rust", "Content");
+        let inserted = article.insert(&pool).await.unwrap();
+
+        // Should still succeed with empty slug; retrievable by id.
+        assert!(inserted.id.is_some());
+        let fetched = Article::get_by_id(&pool, inserted.id.unwrap()).await;
+        assert!(fetched.is_some());
+    }
+
+    // --- update/delete error handling ---
+
+    #[tokio::test]
+    async fn test_update_without_id_returns_error() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        let article = make_article(None, "No ID", "", "");
+        let result = article.update(&pool).await;
+        assert!(result.is_err(), "update with no id should return Error");
+    }
+
+    #[tokio::test]
+    async fn test_delete_without_id_returns_error() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        let article = make_article(None, "No ID", "", "");
+        let result = article.delete(&pool).await;
+        assert!(result.is_err(), "delete with no id should return Error");
+    }
+
+    // --- insert/update happy path ---
+
+    #[tokio::test]
+    async fn test_insert_then_update_returns_ok() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        setup(&pool).await;
+
+        let article = make_article(Some("slug-v1"), "Title v1", "rust", "Content v1");
+        let inserted = article.insert(&pool).await.unwrap();
+        assert!(inserted.id.is_some());
+
+        // Build an updated version with the same id.
+        let updated_form = Article::from(EditorForm {
+            id: inserted.id,
+            slug: Some("slug-v2".to_string()),
+            title: Some("Title v2".to_string()),
+            tags: Some("rust, wasm".to_string()),
+            content: Some("Content v2".to_string()),
+        });
+        // EditorForm -> Article sets id from form.id, but we need to verify it's set.
+        assert_eq!(updated_form.id, inserted.id);
+
+        let updated = updated_form.update(&pool).await.unwrap();
+        assert_eq!(updated.id, inserted.id);
+        // Verify changes persisted.
+        let fetched = Article::get_by_slug(&pool, "slug-v2").await.unwrap();
+        assert_eq!(fetched.content, "Content v2");
+    }
+
+    // --- get_total_count ---
+
+    #[tokio::test]
+    async fn test_get_total_count() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        setup(&pool).await;
+
+        assert_eq!(Article::get_total_count(&pool).await, 0);
+
+        make_article(None, "A", "", "a")
+            .insert(&pool)
+            .await
+            .unwrap();
+        assert_eq!(Article::get_total_count(&pool).await, 1);
+
+        make_article(None, "B", "", "b")
+            .insert(&pool)
+            .await
+            .unwrap();
+        make_article(None, "C", "", "c")
+            .insert(&pool)
+            .await
+            .unwrap();
+        assert_eq!(Article::get_total_count(&pool).await, 3);
     }
 }
