@@ -1,9 +1,17 @@
-version: "3"
-
 services:
   rsomhap:
     build: .
     image: rsomhap:latest
     container_name: rsomhap
+    restart: unless-stopped
     ports:
       - "5299:5299"
+    environment:
+      - MYSQL_CONNECTION_URL
+      - UMAMI_ID
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5299/ping || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

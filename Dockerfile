@@ -1,41 +1,35 @@
 # syntax=docker/dockerfile:1
 
-################################################################################
-# Create a stage for building the application.
-
-ARG RUST_VERSION=latest
+ARG RUST_VERSION=1.84
 ARG APP_NAME=rsomhap
+
+################################################################################
+# Build stage
 
 FROM rust:${RUST_VERSION} AS builder
 ARG APP_NAME
-
 WORKDIR /usr/src/app
 
-# Build the application.
-# Leverage a cache mount to /usr/local/cargo/registry/
-# for downloaded dependencies and a cache mount to /app/target/ for 
-# compiled dependencies which will speed up subsequent builds.
-# Once built, copy the executable to an output directory before
-# the cache mounted /app/target is unmounted.
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+
 RUN --mount=type=cache,target=/usr/src/app/target \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build --release --bin ${APP_NAME} && cp ./target/release/${APP_NAME} ./${APP_NAME}
+    cargo build --release --locked --bin ${APP_NAME} \
+    && cp ./target/release/${APP_NAME} ./${APP_NAME}
 
 ################################################################################
-# Create a new stage for running the application that contains the minimal
-# runtime dependencies for the application. This often uses a different base
-# image from the build stage where the necessary files are copied from the build
-# stage.
+# Runtime stage
 
 FROM debian:bookworm-slim AS final
 ARG APP_NAME
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /usr/src/app
 
-# Create a non-privileged user that the app will run under.
-# See https://docs.docker.com/develop/develop-images/dockerfile_best-practices/#user
 ARG UID=10001
 RUN adduser \
     --disabled-password \
@@ -45,18 +39,17 @@ RUN adduser \
     --no-create-home \
     --uid "${UID}" \
     appuser
-USER appuser
 
-# Copy the executable from the "build" stage.
-COPY --from=builder /usr/src/app/${APP_NAME} .
+# Copy the executable from the build stage.
+COPY --from=builder --chown=appuser:appuser /usr/src/app/${APP_NAME} .
 
 # Copy the necessary files.
-COPY templates ./templates
-COPY static ./static
-COPY config.toml ./
+COPY --chown=appuser:appuser templates ./templates
+COPY --chown=appuser:appuser static ./static
+COPY --chown=appuser:appuser config.toml ./
 
-# Expose the port that the application listens on.
+USER appuser
+
 EXPOSE 5299
 
-# What the container should run when it is started.
 CMD ["./rsomhap"]
