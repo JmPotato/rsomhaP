@@ -27,6 +27,12 @@ use crate::{
 const ADMIN_URL: &str = "/admin";
 const CHANGE_PW_URL: &str = "/admin/change_password";
 
+/// Validate that a redirect target is a safe relative path.
+/// Rejects absolute URLs (http://, https://, //), data: URIs, etc.
+fn is_safe_redirect(url: &str) -> bool {
+    url.starts_with('/') && !url.starts_with("//")
+}
+
 pub async fn handler_home(state: State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
     handler_page(state, Path(1)).await
 }
@@ -251,8 +257,10 @@ pub async fn handler_login_post(
     let user = match auth_session.authenticate(credentials.clone()).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            if let Some(next) = credentials.next {
-                login_url = format!("{}?next={}", login_url, next);
+            if let Some(ref next) = credentials.next {
+                if is_safe_redirect(next) {
+                    login_url = format!("{}?next={}", login_url, next);
+                }
             };
 
             return Redirect::to(&login_url).into_response();
@@ -263,9 +271,13 @@ pub async fn handler_login_post(
     if auth_session.login(&user).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    // redirect to the next page if it exists.
+    // redirect to the next page if it exists and is a safe relative path.
     if let Some(ref next) = credentials.next {
-        Redirect::to(next)
+        if is_safe_redirect(next) {
+            Redirect::to(next)
+        } else {
+            Redirect::to(ADMIN_URL)
+        }
     } else {
         Redirect::to(ADMIN_URL)
     }
@@ -368,8 +380,15 @@ pub async fn handler_change_pw_post(
     .into_response()
 }
 
+fn build_message_url(url: &str, message: &str) -> String {
+    let encoded: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("message", message)
+        .finish();
+    format!("{}?{}", url, encoded)
+}
+
 fn redirect_with_message(url: &str, message: &str) -> Redirect {
-    Redirect::to(format!("{}?message={}", url, message).as_str())
+    Redirect::to(build_message_url(url, message).as_str())
 }
 
 pub async fn handler_edit_article_get(
@@ -482,4 +501,93 @@ pub async fn handler_ping(State(state): State<Arc<AppState>>) -> impl IntoRespon
         );
     }
     (StatusCode::OK, "pong".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_safe_redirect ---
+
+    #[test]
+    fn test_safe_redirect_relative_paths() {
+        assert!(is_safe_redirect("/admin"));
+        assert!(is_safe_redirect("/admin/edit/article/1"));
+        assert!(is_safe_redirect("/"));
+    }
+
+    #[test]
+    fn test_safe_redirect_rejects_absolute_urls() {
+        assert!(!is_safe_redirect("https://evil.com"));
+        assert!(!is_safe_redirect("http://evil.com"));
+        assert!(!is_safe_redirect("ftp://evil.com"));
+    }
+
+    #[test]
+    fn test_safe_redirect_rejects_protocol_relative_urls() {
+        // //evil.com is a valid protocol-relative URL that browsers resolve against the current scheme.
+        assert!(!is_safe_redirect("//evil.com"));
+        assert!(!is_safe_redirect("//evil.com/path"));
+    }
+
+    #[test]
+    fn test_safe_redirect_rejects_other_schemes() {
+        assert!(!is_safe_redirect("javascript:alert(1)"));
+        assert!(!is_safe_redirect("data:text/html,<h1>hi</h1>"));
+    }
+
+    #[test]
+    fn test_safe_redirect_rejects_bare_strings() {
+        assert!(!is_safe_redirect("evil.com"));
+        assert!(!is_safe_redirect(""));
+    }
+
+    // --- build_message_url ---
+
+    #[test]
+    fn test_build_message_url_plain() {
+        let url = build_message_url("/admin", "success");
+        assert_eq!(url, "/admin?message=success");
+    }
+
+    #[test]
+    fn test_build_message_url_encodes_special_chars() {
+        let url = build_message_url("/admin", "hello world&foo=bar");
+        // Spaces become +, & and = are percent-encoded in form_urlencoded.
+        assert!(url.starts_with("/admin?message="));
+        assert!(!url.contains("&foo="), "raw & should be encoded");
+        // Decode and verify the message round-trips.
+        let query = url.strip_prefix("/admin?").unwrap();
+        let pairs: Vec<(String, String)> =
+            url::form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, "message");
+        assert_eq!(pairs[0].1, "hello world&foo=bar");
+    }
+
+    #[test]
+    fn test_build_message_url_encodes_unicode() {
+        let url = build_message_url("/admin", "页面已存在");
+        let query = url.strip_prefix("/admin?").unwrap();
+        let pairs: Vec<(String, String)> =
+            url::form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect();
+        assert_eq!(pairs[0].1, "页面已存在");
+    }
+
+    #[test]
+    fn test_build_message_url_encodes_hash() {
+        // '#' would truncate the URL if not encoded.
+        let url = build_message_url("/admin", "error #123");
+        assert!(!url.contains('#'), "# should be percent-encoded");
+        let query = url.strip_prefix("/admin?").unwrap();
+        let pairs: Vec<(String, String)> =
+            url::form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect();
+        assert_eq!(pairs[0].1, "error #123");
+    }
 }
