@@ -30,6 +30,14 @@ impl Article {
             .unwrap_or_default()
     }
 
+    pub async fn get_recent(db: &sqlx::MySqlPool, limit: u32) -> Vec<Self> {
+        sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles ORDER BY id DESC LIMIT ?")
+            .bind(limit)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default()
+    }
+
     pub async fn get_on_page(db: &sqlx::MySqlPool, page: u32, article_per_page: u32) -> Vec<Self> {
         sqlx::query_as("SELECT id, slug, title, content, tags, created_at, updated_at FROM articles ORDER BY id DESC LIMIT ? OFFSET ?")
             .bind(article_per_page)

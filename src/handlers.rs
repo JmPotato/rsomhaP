@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, sync::LazyLock};
 
 use axum::{
     body::Body,
@@ -11,7 +11,6 @@ use axum_login::AuthSession;
 use chrono::Datelike;
 use minijinja::context;
 use rand::{thread_rng, Rng};
-use regex::Regex;
 use serde::Deserialize;
 use tracing::{error, info};
 
@@ -26,6 +25,9 @@ use crate::{
 
 const ADMIN_URL: &str = "/admin";
 const CHANGE_PW_URL: &str = "/admin/change_password";
+
+static MARKDOWN_IMAGE_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\!\[.*?\]\((.*?)\)").unwrap());
 
 /// Validate that a redirect target is a safe relative path.
 /// Rejects absolute URLs (http://, https://, //), data: URIs, etc.
@@ -89,9 +91,8 @@ pub async fn handler_article(
                     .collect::<Vec<String>>(),
                 image => {
                     // find all image URLs in the article markdown content and choose one randomly.
-                    let re = Regex::new(r"\!\[.*?\]\((.*?)\)").unwrap();
                     let mut image_urls: Vec<String> = vec![];
-                    for (_, [image_url]) in re.captures_iter(&article.content).map(|c| c.extract()) {
+                    for (_, [image_url]) in MARKDOWN_IMAGE_RE.captures_iter(&article.content).map(|c| c.extract()) {
                         image_urls.push(image_url.to_string());
                     }
                     if image_urls.is_empty() {
@@ -444,6 +445,7 @@ pub async fn handler_edit_post<T: Editable>(
     match result {
         Ok(output) => {
             state.refresh_feed_cache(false).await;
+            state.refresh_page_titles_cache().await;
             Redirect::to(T::get_redirect_url(&output).as_str())
         }
         Err(err) => {
@@ -475,6 +477,7 @@ pub async fn handler_delete_post<T: Editable>(
     match entity.delete(&state.db).await {
         Ok(()) => {
             state.refresh_feed_cache(true).await;
+            state.refresh_page_titles_cache().await;
             Redirect::to(ADMIN_URL)
         }
         Err(err) => {

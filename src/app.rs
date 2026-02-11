@@ -45,6 +45,8 @@ pub struct AppState {
     pub db: sqlx::MySqlPool,
     // Cache the feed content to reduce the database query.
     pub feed_cache: Arc<RwLock<(DateTime<Utc>, Option<String>)>>,
+    // Cache the page titles to avoid querying the database on every template render.
+    pub page_titles_cache: Arc<RwLock<Vec<String>>>,
 }
 
 impl AppState {
@@ -70,11 +72,13 @@ impl AppState {
         info!("building the environment");
         let env = Self::build_env(&config)?;
 
+        let page_titles = Page::get_all_titles(&db).await;
         let state = Self {
             config,
             env,
             db,
             feed_cache: Arc::new(RwLock::new((Default::default(), None))),
+            page_titles_cache: Arc::new(RwLock::new(page_titles)),
         };
         state.refresh_feed_cache(true).await;
 
@@ -138,12 +142,13 @@ impl AppState {
             return;
         }
         feed_cache.0 = article_latest_updated;
+        const FEED_ARTICLE_LIMIT: u32 = 20;
         feed_cache.1 = Some(
             self.render_template(
                 "feed.xml",
                 context! {
                     updated_at => article_latest_updated,
-                    articles => Article::get_all(&self.db).await,
+                    articles => Article::get_recent(&self.db, FEED_ARTICLE_LIMIT).await,
                 },
             )
             .await,
@@ -153,6 +158,12 @@ impl AppState {
             Utc::now(),
             article_latest_updated
         );
+    }
+
+    pub async fn refresh_page_titles_cache(&self) {
+        let titles = Page::get_all_titles(&self.db).await;
+        let mut cache = self.page_titles_cache.write().await;
+        *cache = titles;
     }
 
     pub async fn get_feed_cache(&self) -> String {
@@ -178,9 +189,10 @@ impl AppState {
 
     pub async fn render_template(&self, template_name: &str, context: Value) -> String {
         let template = self.env.get_template(template_name).unwrap();
+        let page_titles = self.page_titles_cache.read().await.clone();
         template
             .render(context! {
-                page_titles => Page::get_all_titles(&self.db).await,
+                page_titles => page_titles,
                 ..context,
             })
             .unwrap()
