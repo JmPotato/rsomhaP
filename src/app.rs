@@ -29,7 +29,7 @@ use crate::{
         handler_edit_page_get, handler_edit_post, handler_feed, handler_home, handler_login_get,
         handler_login_post, handler_logout, handler_page, handler_ping, handler_tag, handler_tags,
     },
-    models::{create_tables_within_transaction, Article, Page, User},
+    models::{init_schema, Article, DbPool, Page, User},
 };
 
 const TEMPLATES_DIR: &str = "templates";
@@ -42,7 +42,7 @@ const CONFIG_FILE_PATH: &str = "config.toml";
 pub struct AppState {
     pub config: Config,
     pub env: Environment<'static>,
-    pub db: sqlx::MySqlPool,
+    pub db: DbPool,
     // Cache the feed content to reduce the database query.
     pub feed_cache: Arc<RwLock<(DateTime<Utc>, Option<String>)>>,
     // Cache the page titles to avoid querying the database on every template render.
@@ -55,11 +55,12 @@ impl AppState {
         let config = Config::new(CONFIG_FILE_PATH)?;
 
         info!("connecting to the database");
-        // connect to the database.
-        let db = sqlx::MySqlPool::connect(&config.mysql_connection_url()?).await?;
+        // connect to the database. The URL scheme selects the backend
+        // (`mysql://` or `postgres://`).
+        let db = DbPool::connect(&config.database_url()?).await?;
         info!("initializing the database");
         // create the tables if they don't exist.
-        create_tables_within_transaction(&db).await?;
+        init_schema(&db).await?;
         // init the admin user.
         let admin_username = config.admin_username();
         User::insert(

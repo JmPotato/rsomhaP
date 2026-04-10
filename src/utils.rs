@@ -11,6 +11,7 @@ use serde::{de::DeserializeOwned, Deserialize};
 use tracing::error;
 
 use crate::app::AppState;
+use crate::models::DbPool;
 use crate::Error;
 
 #[macro_export]
@@ -73,9 +74,9 @@ pub struct EditorForm {
 
 pub trait Editable: DeserializeOwned + Display {
     fn get_redirect_url(&self) -> String;
-    async fn update(&self, db: &sqlx::MySqlPool) -> Result<Self, Error>;
-    async fn insert(&self, db: &sqlx::MySqlPool) -> Result<Self, Error>;
-    async fn delete(&self, db: &sqlx::MySqlPool) -> Result<(), Error>;
+    async fn update(&self, db: &DbPool) -> Result<Self, Error>;
+    async fn insert(&self, db: &DbPool) -> Result<Self, Error>;
+    async fn delete(&self, db: &DbPool) -> Result<(), Error>;
 }
 
 pub struct Entity<T> {

@@ -24,9 +24,21 @@ article_per_page = 15
 # - `Solarized (dark)` and `Solarized (light)`
 code_syntax_highlight_theme = "base16-eighties.dark"
 
-[mysql]
-# If `connection_url` is set, other connection-related configs will be ignored.
+[database]
+# Which backend to use when building a connection URL from the split fields
+# below. Accepted values: `mysql`, `postgres`.
+backend = "mysql"
+#
+# If `connection_url` is set, it is used as-is and its own scheme still
+# selects the actual driver:
+#   - mysql://user:pass@host:port/db
+#   - postgres://user:pass@host:port/db  (or postgresql://)
+# Examples:
 # connection_url = "mysql://root:password@127.0.0.1:4000/rsomhaP"
+# connection_url = "postgres://postgres:password@127.0.0.1:5432/rsomhaP"
+#
+# If you use the split fields below instead of `connection_url`, `backend`
+# controls whether `mysql://` or `postgres://` is generated.
 username = "root"
 password = "password"
 host = "127.0.0.1"

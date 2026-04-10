@@ -18,6 +18,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 sqlx = { version = "0.8.2", features = [
     "runtime-tokio",
     "mysql",
+    "postgres",
     "chrono",
     "tls-rustls",
 ] }

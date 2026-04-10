@@ -34,8 +34,27 @@ struct Style {
     code_syntax_highlight_theme: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum DatabaseBackend {
+    #[default]
+    MySql,
+    Postgres,
+}
+
+impl DatabaseBackend {
+    fn scheme(self) -> &'static str {
+        match self {
+            Self::MySql => "mysql",
+            Self::Postgres => "postgres",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
-struct MySQL {
+struct Database {
+    #[serde(default)]
+    backend: DatabaseBackend,
     connection_url: Option<String>,
     username: Option<String>,
     password: Option<String>,
@@ -145,7 +164,8 @@ pub struct Config {
     meta: Meta,
     admin: Admin,
     style: Style,
-    mysql: MySQL,
+    #[serde(alias = "mysql")]
+    database: Database,
     giscus: Giscus,
     analytics: Analytics,
     twitter_card: TwitterCard,
@@ -164,8 +184,10 @@ impl Config {
     }
 
     fn load_env_vars(&mut self) -> Result<(), Error> {
-        if let Ok(mysql_connection_url) = std::env::var("MYSQL_CONNECTION_URL") {
-            self.mysql.connection_url = Some(mysql_connection_url);
+        if let Ok(database_url) = std::env::var("DATABASE_URL") {
+            self.database.connection_url = Some(database_url);
+        } else if let Ok(mysql_connection_url) = std::env::var("MYSQL_CONNECTION_URL") {
+            self.database.connection_url = Some(mysql_connection_url);
         }
         if let Ok(plausible_domain) = std::env::var("PLAUSIBLE_DOMAIN") {
             self.analytics.plausible = Some(plausible_domain);
@@ -183,16 +205,16 @@ impl Config {
                 "invalid deployment config, please specify the host and port".to_string(),
             ));
         }
-        // check the MySQL config.
-        if self.mysql.connection_url.is_none()
-            && (self.mysql.username.is_none()
-                || self.mysql.password.is_none()
-                || self.mysql.host.is_none()
-                || self.mysql.port.is_none()
-                || self.mysql.database.is_none())
+        // check the database config.
+        if self.database.connection_url.is_none()
+            && (self.database.username.is_none()
+                || self.database.password.is_none()
+                || self.database.host.is_none()
+                || self.database.port.is_none()
+                || self.database.database.is_none())
         {
             return Err(Error::ConfigValidation(
-                "invalid MySQL config, please specify the connection URL or the username, password, host, port and database".to_string(),
+                "invalid database config, please specify the connection URL or the username, password, host, port and database".to_string(),
             ));
         }
 
@@ -204,32 +226,42 @@ impl Config {
         format!("{}:{}", self.deploy.host, self.deploy.port)
     }
 
-    // get the MySQL connection URL according to the config, it will use `connection_url` if it is set,
-    // otherwise it will use `username`, `password`, `host`, `port` and `database` to build one.
-    pub fn mysql_connection_url(&self) -> Result<String, Error> {
-        if let Some(connection_url) = &self.mysql.connection_url {
+    // get the database connection URL according to the config. `connection_url`
+    // wins if it is set; otherwise build one from the split fields and the
+    // configured backend. Full URLs still need their own scheme
+    // (`mysql://`, `postgres://`, or `postgresql://`) because sqlx expects it.
+    pub fn database_url(&self) -> Result<String, Error> {
+        if let Some(connection_url) = &self.database.connection_url {
             Ok(connection_url.clone())
         } else {
             let (username, password, host, port, database) = (
-                self.mysql
+                self.database
                     .username
                     .as_ref()
-                    .ok_or(Error::InvalidMySQLConfig)?,
-                self.mysql
+                    .ok_or(Error::InvalidDatabaseConfig)?,
+                self.database
                     .password
                     .as_ref()
-                    .ok_or(Error::InvalidMySQLConfig)?,
-                self.mysql.host.as_ref().ok_or(Error::InvalidMySQLConfig)?,
-                self.mysql.port.ok_or(Error::InvalidMySQLConfig)?,
-                self.mysql
+                    .ok_or(Error::InvalidDatabaseConfig)?,
+                self.database
+                    .host
+                    .as_ref()
+                    .ok_or(Error::InvalidDatabaseConfig)?,
+                self.database.port.ok_or(Error::InvalidDatabaseConfig)?,
+                self.database
                     .database
                     .as_ref()
-                    .ok_or(Error::InvalidMySQLConfig)?,
+                    .ok_or(Error::InvalidDatabaseConfig)?,
             );
 
             Ok(format!(
-                "mysql://{}:{}@{}:{}/{}",
-                username, password, host, port, database
+                "{}://{}:{}@{}:{}/{}",
+                self.database.backend.scheme(),
+                username,
+                password,
+                host,
+                port,
+                database
             ))
         }
     }
@@ -278,5 +310,221 @@ impl Object for Config {
             "analytics",
             "twitter_card",
         ])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{LazyLock, Mutex};
+
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    fn parse_config(section_name: &str, database_section: &str) -> Config {
+        toml::from_str(&format!(
+            r#"
+[deploy]
+host = "127.0.0.1"
+port = 5299
+
+[meta]
+blog_name = "rsomhaP"
+blog_url = "https://example.com"
+blog_author = "author"
+
+[admin]
+username = "admin"
+
+[style]
+article_per_page = 15
+code_syntax_highlight_theme = "base16-eighties.dark"
+
+[{section_name}]
+{database_section}
+
+[giscus]
+enable = false
+category = ""
+category_id = ""
+emit_metadata = "0"
+input_position = "top"
+lang = "en"
+loading = ""
+mapping = "og:title"
+reactions_enabled = "1"
+repo = ""
+repo_id = ""
+theme = "light"
+
+[analytics]
+
+[twitter_card]
+enabled = false
+user_id = "@user"
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn test_database_url_defaults_split_fields_to_mysql() {
+        let config = parse_config(
+            "database",
+            r#"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "rsomhaP"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "mysql://root:password@127.0.0.1:4000/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_database_url_uses_postgres_backend_for_split_fields() {
+        let config = parse_config(
+            "database",
+            r#"
+backend = "postgres"
+username = "postgres"
+password = "password"
+host = "127.0.0.1"
+port = 5432
+database = "rsomhaP"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "postgres://postgres:password@127.0.0.1:5432/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_database_url_prefers_connection_url_over_backend_field() {
+        let config = parse_config(
+            "database",
+            r#"
+backend = "mysql"
+connection_url = "postgresql://postgres:secret@127.0.0.1:5432/rsomhaP"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "ignored"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "postgresql://postgres:secret@127.0.0.1:5432/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_legacy_mysql_section_alias_still_parses() {
+        let config = parse_config(
+            "mysql",
+            r#"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "rsomhaP"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "mysql://root:password@127.0.0.1:4000/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_load_env_vars_falls_back_to_legacy_mysql_connection_url() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let database_url_before = std::env::var_os("DATABASE_URL");
+        let mysql_connection_url_before = std::env::var_os("MYSQL_CONNECTION_URL");
+
+        unsafe {
+            std::env::remove_var("DATABASE_URL");
+            std::env::set_var(
+                "MYSQL_CONNECTION_URL",
+                "mysql://legacy:password@127.0.0.1:4000/rsomhaP",
+            );
+        }
+
+        let mut config = parse_config(
+            "database",
+            r#"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "rsomhaP"
+"#,
+        );
+        config.load_env_vars().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "mysql://legacy:password@127.0.0.1:4000/rsomhaP"
+        );
+
+        restore_env_var("DATABASE_URL", database_url_before);
+        restore_env_var("MYSQL_CONNECTION_URL", mysql_connection_url_before);
+    }
+
+    #[test]
+    fn test_load_env_vars_prefers_database_url_over_legacy_mysql_connection_url() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let database_url_before = std::env::var_os("DATABASE_URL");
+        let mysql_connection_url_before = std::env::var_os("MYSQL_CONNECTION_URL");
+
+        unsafe {
+            std::env::set_var(
+                "DATABASE_URL",
+                "postgres://preferred:secret@127.0.0.1:5432/rsomhaP",
+            );
+            std::env::set_var(
+                "MYSQL_CONNECTION_URL",
+                "mysql://legacy:password@127.0.0.1:4000/rsomhaP",
+            );
+        }
+
+        let mut config = parse_config(
+            "database",
+            r#"
+backend = "mysql"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+port = 4000
+database = "rsomhaP"
+"#,
+        );
+        config.load_env_vars().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "postgres://preferred:secret@127.0.0.1:5432/rsomhaP"
+        );
+
+        restore_env_var("DATABASE_URL", database_url_before);
+        restore_env_var("MYSQL_CONNECTION_URL", mysql_connection_url_before);
+    }
+
+    fn restore_env_var(key: &str, previous: Option<std::ffi::OsString>) {
+        match previous {
+            Some(value) => unsafe { std::env::set_var(key, value) },
+            None => unsafe { std::env::remove_var(key) },
+        }
     }
 }

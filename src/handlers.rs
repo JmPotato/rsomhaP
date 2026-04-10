@@ -561,10 +561,9 @@ mod tests {
         assert!(!url.contains("&foo="), "raw & should be encoded");
         // Decode and verify the message round-trips.
         let query = url.strip_prefix("/admin?").unwrap();
-        let pairs: Vec<(String, String)> =
-            url::form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect();
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].0, "message");
         assert_eq!(pairs[0].1, "hello world&foo=bar");
@@ -574,10 +573,9 @@ mod tests {
     fn test_build_message_url_encodes_unicode() {
         let url = build_message_url("/admin", "页面已存在");
         let query = url.strip_prefix("/admin?").unwrap();
-        let pairs: Vec<(String, String)> =
-            url::form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect();
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
         assert_eq!(pairs[0].1, "页面已存在");
     }
 
@@ -587,10 +585,9 @@ mod tests {
         let url = build_message_url("/admin", "error #123");
         assert!(!url.contains('#'), "# should be percent-encoded");
         let query = url.strip_prefix("/admin?").unwrap();
-        let pairs: Vec<(String, String)> =
-            url::form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect();
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
         assert_eq!(pairs[0].1, "error #123");
     }
 }

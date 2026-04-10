@@ -7,7 +7,7 @@ services:
     ports:
       - "5299:5299"
     environment:
-      - MYSQL_CONNECTION_URL
+      - DATABASE_URL
       - UMAMI_ID
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:5299/ping || exit 1"]

@@ -21,10 +21,10 @@ jobs:
           curl -L https://fly.io/install.sh | sh
           echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
       - name: Set secrets
-        run: fly secrets set --stage MYSQL_CONNECTION_URL="${MYSQL_CONNECTION_URL}" UMAMI_ID="${UMAMI_ID}"
+        run: fly secrets set --stage DATABASE_URL="${DATABASE_URL}" UMAMI_ID="${UMAMI_ID}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          MYSQL_CONNECTION_URL: ${{ secrets.MYSQL_CONNECTION_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           UMAMI_ID: ${{ secrets.UMAMI_ID }}
       - name: Deploy
         run: fly deploy --remote-only
