@@ -32,12 +32,7 @@ If you provide `connection_url` in the config or `DATABASE_URL` in the environme
 - `mysql://...` for MySQL
 - `postgres://...` / `postgresql://...` for PostgreSQL
 
-Upgrade note:
-
-- `DATABASE_URL` is the preferred environment variable.
-- Legacy `MYSQL_CONNECTION_URL` is still accepted as a compatibility fallback.
-- Legacy `[mysql]` config still parses, but `[database]` is the preferred section name going forward.
-- The default sample config binds to `0.0.0.0` so Docker and public deployments work out of the box. If you want local-only access, change `[deploy].host` to `127.0.0.1`.
+The default sample config binds to `0.0.0.0` so Docker and public deployments work out of the box. If you want local-only access, change `[deploy].host` to `127.0.0.1`.
 
 ```sh
 cargo run --release

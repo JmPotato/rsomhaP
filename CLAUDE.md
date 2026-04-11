@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-rsomhaP is a monolithic, server-rendered blog engine written in Rust. It is a rewrite of the Python project [Pomash](https://github.com/JmPotato/Pomash) and ships as a single binary backed by either a MySQL- or PostgreSQL-compatible database. Split DB config under `[database]` selects the backend via `backend = "mysql"` / `"postgres"`, while full `connection_url` / `DATABASE_URL` values still select the driver through their URL scheme. Legacy `[mysql]` config and `MYSQL_CONNECTION_URL` env input are still accepted as compatibility fallbacks, but new work should use `[database]` and `DATABASE_URL`.
+rsomhaP is a monolithic, server-rendered blog engine written in Rust. It is a rewrite of the Python project [Pomash](https://github.com/JmPotato/Pomash) and ships as a single binary backed by either a MySQL- or PostgreSQL-compatible database. Split DB config under `[database]` selects the backend via `backend = "mysql"` / `"postgres"`, while full `connection_url` / `DATABASE_URL` values select the driver through their URL scheme.
 
 ## Commands
 
@@ -25,7 +25,7 @@ cargo test <test_name>                            # run a single test by name
 
 # Docker
 docker build -t rsomhap .
-docker compose up                                 # reads DATABASE_URL / MYSQL_CONNECTION_URL / UMAMI_ID from the environment
+docker compose up                                 # reads DATABASE_URL / UMAMI_ID from the environment
 ```
 
 **All DB-backed tests live in `src/models/*` and must run serially.** They share real tables (`articles`, `tags`, `pages`, `users`) and truncate data between cases, so parallel execution corrupts state. Every DB test starts with `let Some(pool) = get_test_pool().await else { return; };` (where `get_test_pool` returns `Option<DbPool>`), so a plain `cargo test` without `TEST_DATABASE_URL` is a compile + pure-logic check only — it is not a substitute for running with a real DB before merging schema or model changes. The DB tests are **backend-agnostic**: they run against whichever backend `TEST_DATABASE_URL` points at. Run them against both MySQL and PostgreSQL before merging any change that touches `src/models/*`. Tests outside `src/models/*` (`is_safe_redirect`, `build_message_url`, `sort_out_tags`, `User` serde) are pure.
@@ -56,7 +56,7 @@ Sessions use `tower_sessions::MemoryStore` with a per-process `Key::generate()` 
 ### AppState and caches
 `AppState` (in `src/app.rs`) is cloned into an `Arc` and serves both as Axum state and as the `axum_login::AuthnBackend`. It holds:
 
-- `config: Config` — parsed once from `config.toml`, with env var overrides (`DATABASE_URL`, legacy `MYSQL_CONNECTION_URL`, `PLAUSIBLE_DOMAIN`, `UMAMI_ID`) layered on top in `Config::load_env_vars`. `DATABASE_URL` takes precedence when both DB env vars are present. When split DB fields are used, `[database].backend` chooses whether `Config::database_url()` builds a MySQL or PostgreSQL DSN.
+- `config: Config` — parsed once from `config.toml`, with env var overrides (`DATABASE_URL`, `PLAUSIBLE_DOMAIN`, `UMAMI_ID`) layered on top in `Config::load_env_vars`. When split DB fields are used, `[database].backend` chooses whether `Config::database_url()` builds a MySQL or PostgreSQL DSN; `DATABASE_URL` (or an in-file `connection_url`) overrides that and its own URL scheme picks the driver.
 - `env: minijinja::Environment` — all templates loaded eagerly at startup from `templates/` via `add_template_owned`. **Template edits require a full restart**; the `minijinja` `loader` feature is enabled in `Cargo.toml` but is not wired up for hot reload.
 - `db: models::DbPool` — an enum wrapping either `sqlx::MySqlPool` or `sqlx::PgPool`. Backend is picked at `DbPool::connect` time from the URL scheme.
 - `feed_cache` + `page_titles_cache` — both `Arc<RwLock<...>>`.
@@ -81,13 +81,13 @@ Schema DDL is split across two files, one per backend, with no incremental migra
 - `src/models/postgres_schema.rs` — Postgres-flavored `CREATE TABLE IF NOT EXISTS` (with `SERIAL`, `TIMESTAMPTZ NOT NULL DEFAULT NOW()`, separate `CREATE INDEX IF NOT EXISTS` / `CREATE UNIQUE INDEX IF NOT EXISTS`). Postgres has **no** `ON UPDATE CURRENT_TIMESTAMP` equivalent — the target schema is identical in *columns*, but time bookkeeping diverges: see below.
 - `models::init_schema(&DbPool)` dispatches into the right one and issues the DDL through a transaction handle. Both files are idempotent via `IF NOT EXISTS`, so it is safe to call on every boot. Do not treat that as a cross-backend atomic migration guarantee: MySQL can implicitly commit DDL, so partial progress is still possible if a later statement fails.
 
-**There is no schema-version table, no `run_migrations`, no error-code-catching.** The previous incremental migration pattern (catching MySQL error codes 1060/1061) is gone.
+**There is no schema-version table, no `run_migrations`, no error-code-catching.** `init_schema` is `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` only — it will **never** `ALTER` an existing table, add a missing column, or drop a stale one.
 
 **Schema evolution workflow**:
 1. Edit both schema files (`src/models/mysql_schema.rs` and `src/models/postgres_schema.rs`) so they still describe the same target shape.
 2. Update every affected query in `articles.rs`, `pages.rs`, and `users.rs` for both backends.
 3. Add or update a test that proves repeated `init_schema` calls are still safe and do not destroy existing rows.
-4. Decide explicitly whether old deployed databases matter. Because this repo has no incremental migrations, changing the schema files only changes the target schema for fresh databases or manually migrated ones; an already-deployed database will not automatically gain a new column just because `init_schema` still runs on boot.
+4. Treat schema edits as applying only to fresh databases. `init_schema` will not `ALTER` an existing table into the new shape; any database that already exists has to be migrated out-of-band (or dropped and recreated) before the new code will run against it.
 
 **`updated_at` bookkeeping is application-level**, not relied-upon at the DB level. Every `UPDATE` in the model files explicitly `SET updated_at = NOW()`, including `Page::update` and `User::modify_password`. MySQL's `ON UPDATE CURRENT_TIMESTAMP` column default remains as belt-and-suspenders but is load-bearing on **no** backend — do not rely on it. Postgres has no trigger; **any new `UPDATE` you add must bump `updated_at` explicitly or it will silently go stale on Postgres.**
 
@@ -101,7 +101,7 @@ Schema DDL is split across two files, one per backend, with no incremental migra
 
 **Article tags are dual-stored**, and both copies must stay in sync:
 - `articles.tags` holds a comma-separated canonical string (used for display and for round-tripping through the editor).
-- The `tags` table holds normalized rows keyed by `article_id` (used by `GET /tag/{name}` via `INNER JOIN` and by `Tags::get_all_with_count`). The target schema no longer defines `created_at`/`updated_at` on `tags`; they were dead weight. Old databases that predate this cleanup may still physically have those columns until manually migrated or recreated.
+- The `tags` table holds normalized rows keyed by `article_id` (used by `GET /tag/{name}` via `INNER JOIN` and by `Tags::get_all_with_count`). It intentionally carries no `created_at` / `updated_at` columns — a pure association table does not need them, and both backends' schemas reflect that.
 
 `Article::insert` writes both; `Article::update` clears the `tags` rows via `clear_tags_{mysql,postgres}` and re-inserts them; `Article::delete` clears the `tags` rows inside the same transaction as the article delete. Any change to the CSV format (delimiter, normalization, case handling) must be applied atomically across both `Tags::insert_tags_{mysql,postgres}` helpers, `utils::sort_out_tags`, and `handler_article`'s display-time split on `,`.
 
@@ -121,6 +121,6 @@ Not every field of `Config` is reachable from templates. `Config`, `Giscus`, `An
 
 ## Deployment
 
-CI deploys to Fly.io on every push to `main` (`.github/workflows/fly-deploy.yml`). The workflow stages `DATABASE_URL` and `UMAMI_ID` as Fly secrets, then runs `fly deploy --remote-only`. The GitHub Actions secret must therefore be configured under the preferred `DATABASE_URL` name before deploys. The Fly app is configured in `fly.toml` (region `nrt`, internal port `5299`, `/ping` healthcheck, `min_machines_running = 0` with auto-suspend). Because the session store is in-process, suspensions and redeploys both log admin sessions out — acceptable for a single-admin blog, but a blocker for any future multi-tenant mode or multi-machine rollout.
+CI deploys to Fly.io on every push to `main` (`.github/workflows/fly-deploy.yml`). The workflow stages `DATABASE_URL` and `UMAMI_ID` as Fly secrets, then runs `fly deploy --remote-only`. The matching GitHub Actions secret must be configured under the `DATABASE_URL` name before deploys; the workflow has no fallback. The Fly app is configured in `fly.toml` (region `nrt`, internal port `5299`, `/ping` healthcheck, `min_machines_running = 0` with auto-suspend). Because the session store is in-process, suspensions and redeploys both log admin sessions out — acceptable for a single-admin blog, but a blocker for any future multi-tenant mode or multi-machine rollout.
 
-**Database backend selection.** Split config-file fields (`username` / `password` / `host` / `port` / `database` under `[database]`) rely on `[database].backend = "mysql" | "postgres"` to decide which DSN scheme to build. If `connection_url` in the config or `DATABASE_URL` in the environment is present, that full URL wins and its own scheme still chooses the backend: `mysql://...` uses sqlx-mysql, `postgres://...` (or `postgresql://...`) uses sqlx-postgres. Legacy `[mysql]` and `MYSQL_CONNECTION_URL` are still accepted during upgrades, but treat them as compatibility paths rather than the steady-state interface.
+**Database backend selection.** Split config-file fields (`username` / `password` / `host` / `port` / `database` under `[database]`) rely on `[database].backend = "mysql" | "postgres"` to decide which DSN scheme to build. If `connection_url` in the config or `DATABASE_URL` in the environment is present, that full URL wins and its own scheme chooses the backend: `mysql://...` uses sqlx-mysql, `postgres://...` (or `postgresql://...`) uses sqlx-postgres.
