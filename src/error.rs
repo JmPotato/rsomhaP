@@ -18,7 +18,7 @@ pub enum Error {
     #[error("config validation failed: {0}")]
     ConfigValidation(String),
 
-    #[error("invalid database config, please specify the connection URL or the username, password, host, port and database")]
+    #[error("invalid database config, please specify the connection URL or the username, password, host and database")]
     InvalidDatabaseConfig,
 
     #[error("page with same title {0} already exists")]

@@ -9,11 +9,11 @@ async fn main() {
         Ok(app) => app,
         Err(e) => {
             error!("failed to create app: {}", e);
-            return;
+            std::process::exit(1);
         }
     };
     if let Err(e) = app.serve().await {
         error!("failed to serve app: {}", e);
-        return;
+        std::process::exit(1);
     }
 }

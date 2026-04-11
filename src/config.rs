@@ -49,6 +49,13 @@ impl DatabaseBackend {
             Self::Postgres => "postgres",
         }
     }
+
+    fn default_port(self) -> u16 {
+        match self {
+            Self::MySql => 3306,
+            Self::Postgres => 5432,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -207,11 +214,10 @@ impl Config {
             && (self.database.username.is_none()
                 || self.database.password.is_none()
                 || self.database.host.is_none()
-                || self.database.port.is_none()
                 || self.database.database.is_none())
         {
             return Err(Error::ConfigValidation(
-                "invalid database config, please specify the connection URL or the username, password, host, port and database".to_string(),
+                "invalid database config, please specify the connection URL or the username, password, host and database".to_string(),
             ));
         }
 
@@ -244,7 +250,9 @@ impl Config {
                     .host
                     .as_ref()
                     .ok_or(Error::InvalidDatabaseConfig)?,
-                self.database.port.ok_or(Error::InvalidDatabaseConfig)?,
+                self.database
+                    .port
+                    .unwrap_or(self.database.backend.default_port()),
                 self.database
                     .database
                     .as_ref()
@@ -391,6 +399,43 @@ username = "postgres"
 password = "password"
 host = "127.0.0.1"
 port = 5432
+database = "rsomhaP"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "postgres://postgres:password@127.0.0.1:5432/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_database_url_defaults_mysql_port_when_split_fields_omit_port() {
+        let config = parse_config(
+            r#"
+username = "root"
+password = "password"
+host = "127.0.0.1"
+database = "rsomhaP"
+"#,
+        );
+
+        config.validate().unwrap();
+        assert_eq!(
+            config.database_url().unwrap(),
+            "mysql://root:password@127.0.0.1:3306/rsomhaP"
+        );
+    }
+
+    #[test]
+    fn test_database_url_defaults_postgres_port_when_split_fields_omit_port() {
+        let config = parse_config(
+            r#"
+backend = "postgres"
+username = "postgres"
+password = "password"
+host = "127.0.0.1"
 database = "rsomhaP"
 "#,
         );

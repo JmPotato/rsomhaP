@@ -38,7 +38,8 @@ backend = "mysql"
 # connection_url = "postgres://postgres:password@127.0.0.1:5432/rsomhaP"
 #
 # If you use the split fields below instead of `connection_url`, `backend`
-# controls whether `mysql://` or `postgres://` is generated.
+# controls whether `mysql://` or `postgres://` is generated. `port` is
+# optional; it defaults to 3306 for MySQL and 5432 for PostgreSQL.
 username = "root"
 password = "password"
 host = "127.0.0.1"
