@@ -17,9 +17,9 @@ use tracing::{error, info};
 use crate::{
     app::AppState,
     auth::Credentials,
-    models::{Article, Page, Tags, User},
+    models::{Article, ArticleSummary, Page, Tags, User},
     render_template_with_context,
-    utils::{Editable, EditorPath, Entity, Path},
+    utils::{iter_tags, Editable, EditorPath, Entity, Path},
     Error,
 };
 
@@ -39,6 +39,21 @@ pub async fn handler_home(state: State<Arc<AppState>>) -> Result<Html<String>, S
     handler_page(state, Path(1)).await
 }
 
+fn group_articles_by_year(
+    articles: Vec<ArticleSummary>,
+) -> (Vec<i32>, HashMap<i32, Vec<ArticleSummary>>) {
+    let mut articles_by_year: HashMap<i32, Vec<ArticleSummary>> = HashMap::new();
+    for article in articles {
+        articles_by_year
+            .entry(article.created_at.year())
+            .or_default()
+            .push(article);
+    }
+    let mut years: Vec<i32> = articles_by_year.keys().copied().collect();
+    years.sort_by(|a, b| b.cmp(a));
+    (years, articles_by_year)
+}
+
 pub async fn handler_page(
     State(state): State<Arc<AppState>>,
     Path(page_num): Path<i32>,
@@ -47,13 +62,19 @@ pub async fn handler_page(
     if page_num <= 0 {
         return handler_404(State(state)).await;
     }
-    let total_article_count = Article::get_total_count(&state.db).await as u32;
+    let all_articles = state.get_article_summaries().await;
+    let total_article_count = all_articles.len() as u32;
     let article_per_page = state.config.article_per_page();
-    let max_page = (total_article_count as f32 / article_per_page as f32).ceil() as u32;
+    let max_page = total_article_count.div_ceil(article_per_page);
     if max_page != 0 && page_num as u32 > max_page {
         return handler_404(State(state)).await;
     }
-    let articles = Article::get_on_page(&state.db, page_num as u32, article_per_page).await;
+    let start = (page_num as usize - 1) * article_per_page as usize;
+    let articles = all_articles
+        .into_iter()
+        .skip(start)
+        .take(article_per_page as usize)
+        .collect::<Vec<_>>();
 
     Ok(render_template_with_context!(
         state,
@@ -84,11 +105,7 @@ pub async fn handler_article(
             "article.html",
             context! {
                 article => article,
-                tags => article
-                    .tags
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect::<Vec<String>>(),
+                tags => iter_tags(&article.tags).map(str::to_string).collect::<Vec<String>>(),
                 image => {
                     // find all image URLs in the article markdown content and choose one randomly.
                     let mut image_urls: Vec<String> = vec![];
@@ -112,26 +129,16 @@ pub async fn handler_tag(
     State(state): State<Arc<AppState>>,
     Path(tag): Path<String>,
 ) -> Result<Html<String>, StatusCode> {
-    let mut years = vec![];
-    // get articles by tag and map them by year.
-    let articles_by_year = Article::get_by_tag(&state.db, &tag).await.into_iter().fold(
-        HashMap::new(),
-        |mut acc, article| {
-            let year = article.created_at.year();
-            acc.entry(year)
-                .or_insert_with(|| {
-                    years.push(year);
-                    Vec::new()
-                })
-                .push(article);
-            acc
-        },
-    );
+    let articles = state
+        .get_article_summaries()
+        .await
+        .into_iter()
+        .filter(|article| article.has_tag(&tag))
+        .collect();
+    let (years, articles_by_year) = group_articles_by_year(articles);
     if articles_by_year.is_empty() {
         return handler_404(State(state)).await;
     }
-    // sort `years` in descending order.
-    years.sort_by(|a, b| b.cmp(a));
     Ok(render_template_with_context!(
         state,
         "tag.html",
@@ -169,22 +176,7 @@ pub async fn handler_error(
 pub async fn handler_articles(
     State(state): State<Arc<AppState>>,
 ) -> Result<Html<String>, StatusCode> {
-    let mut years = vec![];
-    // get all articles and map them by year.
-    let articles_by_year =
-        Article::get_all(&state.db)
-            .await
-            .into_iter()
-            .fold(HashMap::new(), |mut acc, article| {
-                let year = article.created_at.year();
-                acc.entry(year)
-                    .or_insert_with(|| {
-                        years.push(year);
-                        Vec::new()
-                    })
-                    .push(article);
-                acc
-            });
+    let (years, articles_by_year) = group_articles_by_year(state.get_article_summaries().await);
 
     Ok(render_template_with_context!(
         state,
@@ -197,10 +189,11 @@ pub async fn handler_articles(
 }
 
 pub async fn handler_tags(State(state): State<Arc<AppState>>) -> Result<Html<String>, StatusCode> {
+    let article_summaries = state.get_article_summaries().await;
     Ok(render_template_with_context!(
         state,
         "tags.html",
-        context! {tags => Tags::get_all_with_count(&state.db).await},
+        context! {tags => Tags::from_article_summaries(&article_summaries)},
     ))
 }
 
@@ -307,7 +300,7 @@ pub async fn handler_admin(
         context! {
             message => admin_query.message,
             pages => Page::get_all(&state.db).await,
-            articles => Article::get_all(&state.db).await,
+            articles => state.get_article_summaries().await,
         },
     ))
 }
@@ -444,8 +437,11 @@ pub async fn handler_edit_post<T: Editable>(
 
     match result {
         Ok(output) => {
-            state.refresh_feed_cache(false).await;
-            state.refresh_page_titles_cache().await;
+            tokio::join!(
+                state.refresh_feed_cache(false),
+                state.refresh_article_summaries_cache(),
+                state.refresh_page_titles_cache(),
+            );
             Redirect::to(T::get_redirect_url(&output).as_str())
         }
         Err(err) => {
@@ -476,8 +472,11 @@ pub async fn handler_delete_post<T: Editable>(
     info!("deleting {}", entity);
     match entity.delete(&state.db).await {
         Ok(()) => {
-            state.refresh_feed_cache(true).await;
-            state.refresh_page_titles_cache().await;
+            tokio::join!(
+                state.refresh_feed_cache(true),
+                state.refresh_article_summaries_cache(),
+                state.refresh_page_titles_cache(),
+            );
             Redirect::to(ADMIN_URL)
         }
         Err(err) => {

@@ -1,4 +1,7 @@
-use std::fmt::{self, Display};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,7 +10,7 @@ use tracing::info;
 
 use crate::{
     models::DbPool,
-    utils::{sort_out_tags, Editable, EditorForm},
+    utils::{iter_tags, sort_out_tags, Editable, EditorForm},
     Error,
 };
 
@@ -22,7 +25,39 @@ pub struct Article {
     updated_at: DateTime<Utc>,
 }
 
+#[derive(Clone, FromRow, Serialize, Deserialize, Default)]
+pub struct ArticleSummary {
+    id: Option<i32>,
+    slug: String,
+    title: String,
+    tags: String,
+    pub created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl ArticleSummary {
+    pub fn has_tag(&self, tag: &str) -> bool {
+        iter_tags(&self.tags).any(|name| name == tag)
+    }
+}
+
 impl Article {
+    pub async fn get_all_summaries(db: &DbPool) -> Vec<ArticleSummary> {
+        const SQL: &str = "SELECT id, slug, title, tags, created_at, updated_at \
+                           FROM articles ORDER BY id DESC";
+        match db {
+            DbPool::MySql(pool) => sqlx::query_as(SQL)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default(),
+            DbPool::Postgres(pool) => sqlx::query_as(SQL)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_default(),
+        }
+    }
+
+    #[cfg(test)]
     pub async fn get_all(db: &DbPool) -> Vec<Self> {
         // No parameters → the SQL string is identical on both backends.
         const SQL: &str = "SELECT id, slug, title, content, tags, created_at, updated_at \
@@ -63,6 +98,7 @@ impl Article {
         }
     }
 
+    #[cfg(test)]
     pub async fn get_on_page(db: &DbPool, page: u32, article_per_page: u32) -> Vec<Self> {
         // Widen to i64 *before* multiplying: `(page - 1) * article_per_page`
         // on u32 could overflow for large inputs, and sqlx-postgres 0.8 does
@@ -92,6 +128,7 @@ impl Article {
         }
     }
 
+    #[cfg(test)]
     pub async fn get_total_count(db: &DbPool) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM articles";
         match db {
@@ -148,6 +185,7 @@ impl Article {
         }
     }
 
+    #[cfg(test)]
     pub async fn get_by_tag(db: &DbPool, tag: &str) -> Vec<Self> {
         match db {
             DbPool::MySql(pool) => sqlx::query_as(
@@ -405,6 +443,28 @@ pub struct Tags {
 }
 
 impl Tags {
+    pub fn from_article_summaries(articles: &[ArticleSummary]) -> Vec<Self> {
+        let mut counts = HashMap::<&str, usize>::new();
+        for article in articles {
+            for tag in iter_tags(&article.tags) {
+                *counts.entry(tag).or_default() += 1;
+            }
+        }
+
+        let mut tags = counts.into_iter().collect::<Vec<_>>();
+        tags.sort_by(|(left_name, left_count), (right_name, right_count)| {
+            right_count
+                .cmp(left_count)
+                .then_with(|| left_name.cmp(right_name))
+        });
+        tags.into_iter()
+            .map(|(name, _)| Self {
+                name: name.to_string(),
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
     pub async fn get_all_with_count(db: &DbPool) -> Vec<Self> {
         const SQL: &str = "SELECT name FROM tags GROUP BY name ORDER BY COUNT(name) DESC, name ASC";
         match db {
@@ -424,10 +484,7 @@ impl Tags {
         tags: &str,
         article_id: i32,
     ) -> Result<(), Error> {
-        for tag in tags.split(',').map(|s| s.trim()) {
-            if tag.is_empty() {
-                continue;
-            }
+        for tag in iter_tags(tags) {
             sqlx::query("INSERT INTO tags (name, article_id) VALUES (?, ?)")
                 .bind(tag)
                 .bind(article_id)
@@ -442,10 +499,7 @@ impl Tags {
         tags: &str,
         article_id: i32,
     ) -> Result<(), Error> {
-        for tag in tags.split(',').map(|s| s.trim()) {
-            if tag.is_empty() {
-                continue;
-            }
+        for tag in iter_tags(tags) {
             sqlx::query("INSERT INTO tags (name, article_id) VALUES ($1, $2)")
                 .bind(tag)
                 .bind(article_id)
@@ -503,6 +557,18 @@ mod tests {
             tags: Some(tags.to_string()),
             content: Some(content.to_string()),
         })
+    }
+
+    fn make_summary(id: i32, title: &str, tags: &str) -> ArticleSummary {
+        let now = Utc::now();
+        ArticleSummary {
+            id: Some(id),
+            slug: title.to_string(),
+            title: title.to_string(),
+            tags: tags.to_string(),
+            created_at: now,
+            updated_at: now,
+        }
     }
 
     /// Count rows in the tags table for a given `article_id` via raw SQL.
@@ -611,6 +677,29 @@ mod tests {
     fn test_article_redirect_url_with_no_id_or_slug() {
         let article = Article::default();
         assert_eq!(article.get_redirect_url(), "/");
+    }
+
+    #[test]
+    fn test_article_summary_has_tag_trims_tag_names() {
+        let article = make_summary(1, "post", "rust, wasm, async");
+
+        assert!(article.has_tag("rust"));
+        assert!(article.has_tag("wasm"));
+        assert!(article.has_tag("async"));
+        assert!(!article.has_tag("go"));
+    }
+
+    #[test]
+    fn test_tags_from_article_summaries_counts_and_orders() {
+        let articles = vec![
+            make_summary(1, "a", "rust"),
+            make_summary(2, "b", "rust, wasm"),
+            make_summary(3, "c", "rust, wasm, async"),
+        ];
+
+        let tags = Tags::from_article_summaries(&articles);
+        let names: Vec<_> = tags.iter().map(|tag| tag.name.as_str()).collect();
+        assert_eq!(names, vec!["rust", "wasm", "async"]);
     }
 
     #[test]
@@ -764,6 +853,35 @@ mod tests {
         let all = Article::get_all(&pool).await;
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].id, c.id);
+        assert_eq!(all[1].id, b.id);
+        assert_eq!(all[2].id, a.id);
+    }
+
+    #[tokio::test]
+    async fn test_get_all_summaries_orders_by_id_desc() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        setup(&pool).await;
+
+        let a = make_article(None, "first", "rust", "a")
+            .insert(&pool)
+            .await
+            .unwrap();
+        let b = make_article(None, "second", "wasm", "b")
+            .insert(&pool)
+            .await
+            .unwrap();
+        let c = make_article(None, "third", "async", "c")
+            .insert(&pool)
+            .await
+            .unwrap();
+
+        let all = Article::get_all_summaries(&pool).await;
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].id, c.id);
+        assert_eq!(all[0].title, "third");
+        assert_eq!(all[0].tags, "async");
         assert_eq!(all[1].id, b.id);
         assert_eq!(all[2].id, a.id);
     }

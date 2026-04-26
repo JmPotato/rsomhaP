@@ -123,12 +123,16 @@ where
     }
 }
 
+// Iterate over a comma-separated tag string, trimming whitespace and skipping
+// empties. Centralized so the CSV format stays consistent across all callers
+// (insert/update, display, counting, normalization).
+pub fn iter_tags(tags: &str) -> impl Iterator<Item = &str> + '_ {
+    tags.split(',').map(str::trim).filter(|s| !s.is_empty())
+}
+
 // Sort out tags and remove duplicates.
 pub fn sort_out_tags(tags: &str) -> String {
-    let mut tags = tags
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    let mut tags = iter_tags(tags)
         .collect::<HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();

@@ -29,7 +29,7 @@ use crate::{
         handler_edit_page_get, handler_edit_post, handler_feed, handler_home, handler_login_get,
         handler_login_post, handler_logout, handler_page, handler_ping, handler_tag, handler_tags,
     },
-    models::{init_schema, Article, DbPool, Page, User},
+    models::{init_schema, Article, ArticleSummary, DbPool, Page, User},
 };
 
 const TEMPLATES_DIR: &str = "templates";
@@ -45,6 +45,8 @@ pub struct AppState {
     pub db: DbPool,
     // Cache the feed content to reduce the database query.
     pub feed_cache: Arc<RwLock<(DateTime<Utc>, Option<String>)>>,
+    // Cache article list metadata so public index/tag pages do not hit the DB.
+    pub article_summaries_cache: Arc<RwLock<Vec<ArticleSummary>>>,
     // Cache the page titles to avoid querying the database on every template render.
     pub page_titles_cache: Arc<RwLock<Vec<String>>>,
 }
@@ -73,12 +75,14 @@ impl AppState {
         info!("building the environment");
         let env = Self::build_env(&config)?;
 
+        let article_summaries = Article::get_all_summaries(&db).await;
         let page_titles = Page::get_all_titles(&db).await;
         let state = Self {
             config,
             env,
             db,
             feed_cache: Arc::new(RwLock::new((Default::default(), None))),
+            article_summaries_cache: Arc::new(RwLock::new(article_summaries)),
             page_titles_cache: Arc::new(RwLock::new(page_titles)),
         };
         state.refresh_feed_cache(true).await;
@@ -165,6 +169,16 @@ impl AppState {
         let titles = Page::get_all_titles(&self.db).await;
         let mut cache = self.page_titles_cache.write().await;
         *cache = titles;
+    }
+
+    pub async fn refresh_article_summaries_cache(&self) {
+        let articles = Article::get_all_summaries(&self.db).await;
+        let mut cache = self.article_summaries_cache.write().await;
+        *cache = articles;
+    }
+
+    pub async fn get_article_summaries(&self) -> Vec<ArticleSummary> {
+        self.article_summaries_cache.read().await.clone()
     }
 
     pub async fn get_feed_cache(&self) -> String {
