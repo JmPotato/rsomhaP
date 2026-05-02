@@ -18,6 +18,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate Neon secrets
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          NEON_PRODUCTION_BRANCH_ID: ${{ secrets.NEON_PRODUCTION_BRANCH_ID }}
+          NEON_DATABASE: ${{ secrets.NEON_DATABASE }}
+          NEON_ROLE: ${{ secrets.NEON_ROLE }}
+        run: |
+          missing=()
+          for name in \
+            NEON_API_KEY \
+            NEON_PROJECT_ID \
+            NEON_PRODUCTION_BRANCH_ID \
+            NEON_DATABASE \
+            NEON_ROLE
+          do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required Actions secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
 
