@@ -1,0 +1,65 @@
+name: Test with Neon Branch
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: neon-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Set Neon branch expiration
+        id: neon_expiration
+        run: echo "expires_at=$(date -u -d '+1 day' '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Neon test branch
+        id: neon
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          parent_branch: ${{ secrets.NEON_PRODUCTION_BRANCH_ID }}
+          branch_name: ci-${{ github.ref_name }}-${{ github.sha }}
+          database: ${{ secrets.NEON_DATABASE }}
+          role: ${{ secrets.NEON_ROLE }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          expires_at: ${{ steps.neon_expiration.outputs.expires_at }}
+
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: ${{ steps.neon.outputs.db_url_pooled }}
+        run: cargo test -- --test-threads=1
+
+      - name: Delete Neon test branch
+        if: always() && steps.neon.outputs.branch_id != ''
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch: ${{ steps.neon.outputs.branch_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}
