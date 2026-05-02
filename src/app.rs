@@ -9,7 +9,7 @@ use axum_login::{
     tower_sessions::{cookie::time::Duration, Expiry, MemoryStore, SessionManagerLayer},
     AuthManagerLayerBuilder,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use comrak::{markdown_to_html_with_plugins, plugins::syntect, Options, Plugins};
 use minijinja::{context, Environment, Value};
 use tokio::sync::RwLock;
@@ -44,7 +44,7 @@ pub struct AppState {
     pub env: Environment<'static>,
     pub db: DbPool,
     // Cache the feed content to reduce the database query.
-    pub feed_cache: Arc<RwLock<(DateTime<Utc>, Option<String>)>>,
+    pub feed_cache: Arc<RwLock<String>>,
     // Cache article list metadata so public index/tag pages do not hit the DB.
     pub article_summaries_cache: Arc<RwLock<Vec<ArticleSummary>>>,
     // Cache the page titles to avoid querying the database on every template render.
@@ -81,11 +81,11 @@ impl AppState {
             config,
             env,
             db,
-            feed_cache: Arc::new(RwLock::new((Default::default(), None))),
+            feed_cache: Arc::new(RwLock::new(String::new())),
             article_summaries_cache: Arc::new(RwLock::new(article_summaries)),
             page_titles_cache: Arc::new(RwLock::new(page_titles)),
         };
-        state.refresh_feed_cache(true).await;
+        state.refresh_feed_cache().await;
 
         Ok(state)
     }
@@ -136,30 +136,24 @@ impl AppState {
         Ok(env)
     }
 
-    pub async fn refresh_feed_cache(&self, force: bool) {
+    pub async fn refresh_feed_cache(&self) {
         let mut feed_cache = self.feed_cache.write().await;
-        // Get the latest updated time of the articles.
-        let article_latest_updated = Article::get_latest_updated(&self.db)
-            .await
-            .unwrap_or_default();
-        // No need to update
-        if article_latest_updated <= feed_cache.0 && !force && feed_cache.1.is_some() {
-            return;
-        }
-        feed_cache.0 = article_latest_updated;
+        let article_latest_updated = {
+            let articles = self.article_summaries_cache.read().await;
+            ArticleSummary::latest_updated(&articles)
+        };
         const FEED_ARTICLE_LIMIT: u32 = 20;
-        feed_cache.1 = Some(
-            self.render_template(
+        *feed_cache = self
+            .render_template(
                 "feed.xml",
                 context! {
                     updated_at => article_latest_updated,
                     articles => Article::get_recent(&self.db, FEED_ARTICLE_LIMIT).await,
                 },
             )
-            .await,
-        );
+            .await;
         info!(
-            "feed cache updated at {}, latest article updated at {}",
+            "feed cache updated at {}, latest article updated at {:?}",
             Utc::now(),
             article_latest_updated
         );
@@ -182,8 +176,7 @@ impl AppState {
     }
 
     pub async fn get_feed_cache(&self) -> String {
-        let feed_cache = self.feed_cache.read().await;
-        feed_cache.1.clone().unwrap_or_default()
+        self.feed_cache.read().await.clone()
     }
 
     fn md_to_html(config: &Config, md_content: &str) -> String {
@@ -284,5 +277,78 @@ impl App {
         axum::serve(listener, app).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::State;
+
+    use crate::{
+        models::init_schema,
+        utils::{Editable, EditorForm, Path},
+    };
+
+    async fn get_test_pool() -> Option<DbPool> {
+        let url = std::env::var("TEST_DATABASE_URL").ok()?;
+        Some(DbPool::connect(&url).await.unwrap())
+    }
+
+    async fn truncate_pages(db: &DbPool) {
+        match db {
+            DbPool::MySql(pool) => {
+                sqlx::query("DELETE FROM pages")
+                    .execute(pool)
+                    .await
+                    .unwrap();
+            }
+            DbPool::Postgres(pool) => {
+                sqlx::query("DELETE FROM pages")
+                    .execute(pool)
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_custom_page_detail_query_decides_existence_when_title_cache_is_stale() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        init_schema(&pool).await.unwrap();
+        truncate_pages(&pool).await;
+
+        Page::from(EditorForm {
+            id: None,
+            slug: None,
+            title: Some("Cache Miss".to_string()),
+            tags: None,
+            content: Some("detail query content".to_string()),
+        })
+        .insert(&pool)
+        .await
+        .unwrap();
+
+        let config = Config::new(CONFIG_FILE_PATH).unwrap();
+        let env = AppState::build_env(&config).unwrap();
+        let state = Arc::new(AppState {
+            config,
+            env,
+            db: pool,
+            feed_cache: Arc::new(RwLock::new(String::new())),
+            article_summaries_cache: Arc::new(RwLock::new(vec![])),
+            page_titles_cache: Arc::new(RwLock::new(vec![])),
+        });
+
+        let html = handler_custom_page(State(state), Path("cache miss".to_string()))
+            .await
+            .unwrap()
+            .0;
+
+        assert!(html.contains("Cache Miss"));
+        assert!(html.contains("detail query content"));
+        assert!(!html.contains("Oops, page not found"));
     }
 }

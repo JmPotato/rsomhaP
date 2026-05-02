@@ -125,6 +125,8 @@ impl Display for Page {
 }
 
 impl Editable for Page {
+    const REFRESH_PAGE_TITLES_CACHE: bool = true;
+
     fn get_redirect_url(&self) -> String {
         format!("/{}", self.title.to_lowercase())
     }
@@ -317,6 +319,12 @@ mod tests {
     // ---------- pure-logic tests (no DB) ----------
 
     #[test]
+    fn test_page_refreshes_only_page_title_cache() {
+        assert!(!<Page as Editable>::REFRESH_ARTICLE_CACHES);
+        assert!(<Page as Editable>::REFRESH_PAGE_TITLES_CACHE);
+    }
+
+    #[test]
     fn test_page_from_editor_form_trims_title() {
         let page = Page::from(EditorForm {
             id: None,
@@ -349,6 +357,16 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(page.get_redirect_url(), "/about");
+    }
+
+    #[test]
+    fn test_page_redirect_url_lowercases_unicode_title() {
+        let page = Page {
+            id: Some(1),
+            title: "Über".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(page.get_redirect_url(), "/über");
     }
 
     #[test]

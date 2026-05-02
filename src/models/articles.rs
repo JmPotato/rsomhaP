@@ -39,6 +39,10 @@ impl ArticleSummary {
     pub fn has_tag(&self, tag: &str) -> bool {
         iter_tags(&self.tags).any(|name| name == tag)
     }
+
+    pub fn latest_updated(articles: &[Self]) -> Option<DateTime<Utc>> {
+        articles.iter().map(|article| article.updated_at).max()
+    }
 }
 
 impl Article {
@@ -212,16 +216,6 @@ impl Article {
             .unwrap_or_default(),
         }
     }
-
-    pub async fn get_latest_updated(db: &DbPool) -> Option<DateTime<Utc>> {
-        // Empty table ⇒ `MAX(updated_at)` returns NULL ⇒ decode to `DateTime`
-        // fails ⇒ `.ok()` yields `None`. This is the documented contract.
-        const SQL: &str = "SELECT MAX(updated_at) FROM articles";
-        match db {
-            DbPool::MySql(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await.ok(),
-            DbPool::Postgres(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await.ok(),
-        }
-    }
 }
 
 // --- transaction helpers (kept as free fns so the outer Editable methods
@@ -267,6 +261,8 @@ impl Display for Article {
 }
 
 impl Editable for Article {
+    const REFRESH_ARTICLE_CACHES: bool = true;
+
     fn get_redirect_url(&self) -> String {
         if !self.slug.is_empty() {
             format!("/article/{}", self.slug)
@@ -571,6 +567,17 @@ mod tests {
         }
     }
 
+    fn make_summary_updated_at(id: i32, updated_at: DateTime<Utc>) -> ArticleSummary {
+        ArticleSummary {
+            id: Some(id),
+            slug: id.to_string(),
+            title: id.to_string(),
+            tags: String::new(),
+            created_at: updated_at,
+            updated_at,
+        }
+    }
+
     /// Count rows in the tags table for a given `article_id` via raw SQL.
     async fn tags_row_count_for(db: &DbPool, article_id: i32) -> i64 {
         match db {
@@ -592,6 +599,12 @@ mod tests {
     }
 
     // ---------- pure-logic tests (no DB) ----------
+
+    #[test]
+    fn test_article_refreshes_only_article_caches() {
+        assert!(<Article as Editable>::REFRESH_ARTICLE_CACHES);
+        assert!(!<Article as Editable>::REFRESH_PAGE_TITLES_CACHE);
+    }
 
     #[test]
     fn test_article_from_editor_form_normalizes_slug() {
@@ -700,6 +713,19 @@ mod tests {
         let tags = Tags::from_article_summaries(&articles);
         let names: Vec<_> = tags.iter().map(|tag| tag.name.as_str()).collect();
         assert_eq!(names, vec!["rust", "wasm", "async"]);
+    }
+
+    #[test]
+    fn test_article_summary_latest_updated_returns_max_timestamp() {
+        let oldest = Utc::now() - chrono::Duration::seconds(20);
+        let newest = Utc::now();
+        let articles = vec![
+            make_summary_updated_at(1, oldest),
+            make_summary_updated_at(2, newest),
+        ];
+
+        assert_eq!(ArticleSummary::latest_updated(&articles), Some(newest));
+        assert_eq!(ArticleSummary::latest_updated(&[]), None);
     }
 
     #[test]
@@ -1033,37 +1059,6 @@ mod tests {
             .unwrap();
 
         assert!(Article::get_by_tag(&pool, "nonexistent").await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_get_latest_updated_none_when_empty() {
-        let Some(pool) = get_test_pool().await else {
-            return;
-        };
-        setup(&pool).await;
-        assert!(Article::get_latest_updated(&pool).await.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_get_latest_updated_returns_recent_timestamp() {
-        let Some(pool) = get_test_pool().await else {
-            return;
-        };
-        setup(&pool).await;
-
-        make_article(None, "a", "", "c")
-            .insert(&pool)
-            .await
-            .unwrap();
-
-        let latest = Article::get_latest_updated(&pool)
-            .await
-            .expect("populated table should return Some");
-        let now = Utc::now();
-        assert!(
-            (now - latest).num_seconds().abs() < 60,
-            "latest should be close to now, got {latest}"
-        );
     }
 
     // ---------- update path ----------

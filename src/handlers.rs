@@ -385,6 +385,16 @@ fn redirect_with_message(url: &str, message: &str) -> Redirect {
     Redirect::to(build_message_url(url, message).as_str())
 }
 
+async fn refresh_caches_after_mutation<T: Editable>(state: &AppState) {
+    if T::REFRESH_ARTICLE_CACHES {
+        state.refresh_article_summaries_cache().await;
+        state.refresh_feed_cache().await;
+    }
+    if T::REFRESH_PAGE_TITLES_CACHE {
+        state.refresh_page_titles_cache().await;
+    }
+}
+
 pub async fn handler_edit_article_get(
     State(state): State<Arc<AppState>>,
     Path(editor_path): Path<EditorPath>,
@@ -437,11 +447,7 @@ pub async fn handler_edit_post<T: Editable>(
 
     match result {
         Ok(output) => {
-            tokio::join!(
-                state.refresh_feed_cache(false),
-                state.refresh_article_summaries_cache(),
-                state.refresh_page_titles_cache(),
-            );
+            refresh_caches_after_mutation::<T>(&state).await;
             Redirect::to(T::get_redirect_url(&output).as_str())
         }
         Err(err) => {
@@ -472,11 +478,7 @@ pub async fn handler_delete_post<T: Editable>(
     info!("deleting {}", entity);
     match entity.delete(&state.db).await {
         Ok(()) => {
-            tokio::join!(
-                state.refresh_feed_cache(true),
-                state.refresh_article_summaries_cache(),
-                state.refresh_page_titles_cache(),
-            );
+            refresh_caches_after_mutation::<T>(&state).await;
             Redirect::to(ADMIN_URL)
         }
         Err(err) => {

@@ -73,6 +73,9 @@ pub struct EditorForm {
 }
 
 pub trait Editable: DeserializeOwned + Display {
+    const REFRESH_ARTICLE_CACHES: bool = false;
+    const REFRESH_PAGE_TITLES_CACHE: bool = false;
+
     fn get_redirect_url(&self) -> String;
     async fn update(&self, db: &DbPool) -> Result<Self, Error>;
     async fn insert(&self, db: &DbPool) -> Result<Self, Error>;
