@@ -14,7 +14,7 @@ use crate::{
     Error,
 };
 
-#[derive(FromRow, Serialize, Deserialize, Default)]
+#[derive(Clone, FromRow, Serialize, Deserialize, Default)]
 pub struct Article {
     id: Option<i32>,
     slug: String,

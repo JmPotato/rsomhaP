@@ -10,7 +10,7 @@ use crate::{
     Error,
 };
 
-#[derive(FromRow, Serialize, Deserialize, Default, Debug)]
+#[derive(Clone, FromRow, Serialize, Deserialize, Default, Debug)]
 pub struct Page {
     id: Option<i32>,
     title: String,

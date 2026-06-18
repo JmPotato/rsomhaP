@@ -93,36 +93,47 @@ pub async fn handler_article(
     Path(id_or_slug): Path<String>,
     auth_session: AuthSession<AppState>,
 ) -> Result<Html<String>, StatusCode> {
-    if let Some(article) = if let Ok(id) = id_or_slug.parse::<i32>() {
+    // Try the content cache first so repeat views of the same article do not
+    // hit the DB. On a miss we fall back to the authoritative DB lookup below
+    // (never 404 from a cache miss alone — see CLAUDE.md on detail routes).
+    let article = if let Some(cached) = state.get_cached_article(&id_or_slug).await {
+        cached
+    } else if let Some(fetched) = if let Ok(id) = id_or_slug.parse::<i32>() {
         info!("try to get article by id: {}", id);
         Article::get_by_id(&state.db, id).await
     } else {
         info!("try to get article by slug: {}", id_or_slug);
         Article::get_by_slug(&state.db, &id_or_slug).await
     } {
-        return Ok(render_template_with_context!(
-            state,
-            "article.html",
-            context! {
-                article => article,
-                tags => iter_tags(&article.tags).map(str::to_string).collect::<Vec<String>>(),
-                image => {
-                    // find all image URLs in the article markdown content and choose one randomly.
-                    let mut image_urls: Vec<String> = vec![];
-                    for (_, [image_url]) in MARKDOWN_IMAGE_RE.captures_iter(&article.content).map(|c| c.extract()) {
-                        image_urls.push(image_url.to_string());
-                    }
-                    if image_urls.is_empty() {
-                        None
-                    } else {
-                        Some(image_urls[thread_rng().gen_range(0..image_urls.len())].clone())
-                    }
-                },
-                logged_in => auth_session.user.is_some(),
+        state
+            .cache_article(id_or_slug.clone(), fetched.clone())
+            .await;
+        fetched
+    } else {
+        return handler_404(State(state)).await;
+    };
+
+    Ok(render_template_with_context!(
+        state,
+        "article.html",
+        context! {
+            article => article,
+            tags => iter_tags(&article.tags).map(str::to_string).collect::<Vec<String>>(),
+            image => {
+                // find all image URLs in the article markdown content and choose one randomly.
+                let mut image_urls: Vec<String> = vec![];
+                for (_, [image_url]) in MARKDOWN_IMAGE_RE.captures_iter(&article.content).map(|c| c.extract()) {
+                    image_urls.push(image_url.to_string());
+                }
+                if image_urls.is_empty() {
+                    None
+                } else {
+                    Some(image_urls[thread_rng().gen_range(0..image_urls.len())].clone())
+                }
             },
-        ));
-    }
-    handler_404(State(state)).await
+            logged_in => auth_session.user.is_some(),
+        },
+    ))
 }
 
 pub async fn handler_tag(
@@ -201,9 +212,20 @@ pub async fn handler_custom_page(
     State(state): State<Arc<AppState>>,
     Path(title): Path<String>,
 ) -> Result<Html<String>, StatusCode> {
-    let page = match Page::get_by_title(&state.db, &title).await {
-        Some(page) => page,
-        None => return handler_404(State(state)).await,
+    // Key the cache by the lowercased title so it matches `Page::get_by_title`'s
+    // case-insensitive `LOWER(title)` lookup. On a miss we still let the DB
+    // query decide existence (never 404 from a cache miss alone).
+    let title_key = title.to_lowercase();
+    let page = if let Some(cached) = state.get_cached_page(&title_key).await {
+        cached
+    } else {
+        match Page::get_by_title(&state.db, &title).await {
+            Some(page) => {
+                state.cache_page(title_key, page.clone()).await;
+                page
+            }
+            None => return handler_404(State(state)).await,
+        }
     };
 
     Ok(render_template_with_context!(
@@ -389,9 +411,13 @@ async fn refresh_caches_after_mutation<T: Editable>(state: &AppState) {
     if T::REFRESH_ARTICLE_CACHES {
         state.refresh_article_summaries_cache().await;
         state.refresh_feed_cache().await;
+        // Clear cached article bodies so edits/deletes are reflected on the next
+        // detail view; they are backfilled again on first access.
+        state.clear_article_content_cache().await;
     }
     if T::REFRESH_PAGE_TITLES_CACHE {
         state.refresh_page_titles_cache().await;
+        state.clear_page_content_cache().await;
     }
 }
 
@@ -490,21 +516,32 @@ pub async fn handler_delete_post<T: Editable>(
 }
 
 pub async fn handler_ping(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Check if the database connection is alive.
+    // `/ping` is the Fly.io healthcheck (probed every 60s while the machine is
+    // up). It must NOT touch the database: a periodic query would keep the
+    // Neon compute warm and prevent it from scaling to zero, which is the
+    // single biggest CU-hrs cost driver. `is_closed()` only checks whether the
+    // pool was explicitly closed — it makes no network round-trip — so it is
+    // safe to call here. Use `/healthz/db` for an actual DB liveness probe.
     if state.db.is_closed() {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Database connection is closed".to_string(),
         );
     }
-    // Check if the database read can be performed.
+    (StatusCode::OK, "pong".to_string())
+}
+
+pub async fn handler_healthz_db(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // DB-backed liveness probe. Not wired into any Fly healthcheck; intended
+    // for ad-hoc/external monitoring so the periodic Fly `/ping` can stay
+    // database-free (see `handler_ping`).
     if let Err(err) = User::try_check_initialization(&state.db).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to read from the database: {:?}", err),
         );
     }
-    (StatusCode::OK, "pong".to_string())
+    (StatusCode::OK, "db ok".to_string())
 }
 
 #[cfg(test)]

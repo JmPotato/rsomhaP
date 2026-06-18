@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     routing::{get, post},
@@ -26,12 +26,12 @@ use crate::{
     handlers::{
         handler_404, handler_admin, handler_article, handler_articles, handler_change_pw_get,
         handler_change_pw_post, handler_custom_page, handler_delete_post, handler_edit_article_get,
-        handler_edit_page_get, handler_edit_post, handler_feed, handler_home, handler_login_get,
-        handler_login_post, handler_logout, handler_page, handler_ping, handler_tag, handler_tags,
+        handler_edit_page_get, handler_edit_post, handler_feed, handler_healthz_db, handler_home,
+        handler_login_get, handler_login_post, handler_logout, handler_page, handler_ping,
+        handler_tag, handler_tags,
     },
-    models::{init_schema, Article, ArticleSummary, DbPool, Page, User},
+    models::{init_schema_if_needed, Article, ArticleSummary, DbPool, Page, User},
 };
-
 const TEMPLATES_DIR: &str = "templates";
 const STATIC_DIR: &str = "static";
 // TODO: support specifying the config file path via command line argument.
@@ -49,6 +49,15 @@ pub struct AppState {
     pub article_summaries_cache: Arc<RwLock<Vec<ArticleSummary>>>,
     // Cache the page titles to avoid querying the database on every template render.
     pub page_titles_cache: Arc<RwLock<Vec<String>>>,
+    // Cache full article bodies keyed by the raw path segment (`id_or_slug`) so
+    // public `/article/{id_or_slug}` requests do not hit the DB on every view.
+    // Backfilled on first miss; cleared wholesale on article mutations.
+    pub article_content_cache: Arc<RwLock<HashMap<String, Article>>>,
+    // Cache full page bodies keyed by the lowercased title (matching
+    // `Page::get_by_title`'s `LOWER(title)` lookup) so `/{page}` requests do
+    // not hit the DB on every view. Backfilled on first miss; cleared wholesale
+    // on page mutations.
+    pub page_content_cache: Arc<RwLock<HashMap<String, Page>>>,
 }
 
 impl AppState {
@@ -61,8 +70,10 @@ impl AppState {
         // (`mysql://` or `postgres://`).
         let db = DbPool::connect(&config.database_url()?).await?;
         info!("initializing the database");
-        // create the tables if they don't exist.
-        init_schema(&db).await?;
+        // Provision tables only on a fresh database; otherwise a single
+        // existence probe skips the eight `CREATE ... IF NOT EXISTS` DDL
+        // round-trips on every cold start (a Neon CU-hrs cost).
+        init_schema_if_needed(&db).await?;
         // init the admin user.
         let admin_username = config.admin_username();
         User::insert(
@@ -84,6 +95,11 @@ impl AppState {
             feed_cache: Arc::new(RwLock::new(String::new())),
             article_summaries_cache: Arc::new(RwLock::new(article_summaries)),
             page_titles_cache: Arc::new(RwLock::new(page_titles)),
+            // Content caches start empty and are backfilled on first access, so
+            // a cold start does not eagerly load every article/page body (which
+            // would itself cost Neon CU-hrs on boot).
+            article_content_cache: Arc::new(RwLock::new(HashMap::new())),
+            page_content_cache: Arc::new(RwLock::new(HashMap::new())),
         };
         state.refresh_feed_cache().await;
 
@@ -179,6 +195,42 @@ impl AppState {
         self.feed_cache.read().await.clone()
     }
 
+    // --- article/page content caches (backfill-on-miss, cleared on mutation) ---
+
+    pub async fn get_cached_article(&self, id_or_slug: &str) -> Option<Article> {
+        self.article_content_cache
+            .read()
+            .await
+            .get(id_or_slug)
+            .cloned()
+    }
+
+    pub async fn cache_article(&self, id_or_slug: String, article: Article) {
+        self.article_content_cache
+            .write()
+            .await
+            .insert(id_or_slug, article);
+    }
+
+    pub async fn clear_article_content_cache(&self) {
+        self.article_content_cache.write().await.clear();
+    }
+
+    pub async fn get_cached_page(&self, title_key: &str) -> Option<Page> {
+        self.page_content_cache.read().await.get(title_key).cloned()
+    }
+
+    pub async fn cache_page(&self, title_key: String, page: Page) {
+        self.page_content_cache
+            .write()
+            .await
+            .insert(title_key, page);
+    }
+
+    pub async fn clear_page_content_cache(&self) {
+        self.page_content_cache.write().await.clear();
+    }
+
     fn md_to_html(config: &Config, md_content: &str) -> String {
         // enable some extension options.
         let mut options = Options::default();
@@ -258,6 +310,7 @@ impl App {
             .route("/tags", get(handler_tags))
             .route("/feed", get(handler_feed))
             .route("/ping", get(handler_ping))
+            .route("/healthz/db", get(handler_healthz_db))
             .route("/{page}", get(handler_custom_page))
             .route("/login", get(handler_login_get))
             .route("/login", post(handler_login_post))
@@ -340,9 +393,11 @@ mod tests {
             feed_cache: Arc::new(RwLock::new(String::new())),
             article_summaries_cache: Arc::new(RwLock::new(vec![])),
             page_titles_cache: Arc::new(RwLock::new(vec![])),
+            article_content_cache: Arc::new(RwLock::new(HashMap::new())),
+            page_content_cache: Arc::new(RwLock::new(HashMap::new())),
         });
 
-        let html = handler_custom_page(State(state), Path("cache miss".to_string()))
+        let html = handler_custom_page(State(state.clone()), Path("cache miss".to_string()))
             .await
             .unwrap()
             .0;
@@ -350,5 +405,118 @@ mod tests {
         assert!(html.contains("Cache Miss"));
         assert!(html.contains("detail query content"));
         assert!(!html.contains("Oops, page not found"));
+        // The detail view should have backfilled the page content cache under
+        // the lowercased title key.
+        assert!(
+            state
+                .page_content_cache
+                .read()
+                .await
+                .contains_key("cache miss"),
+            "handler_custom_page should backfill the page content cache on a miss"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_custom_page_content_cache_populated_then_cleared() {
+        let Some(pool) = get_test_pool().await else {
+            return;
+        };
+        init_schema(&pool).await.unwrap();
+        truncate_pages(&pool).await;
+
+        Page::from(EditorForm {
+            id: None,
+            slug: None,
+            title: Some("Cached Page".to_string()),
+            tags: None,
+            content: Some("cached body".to_string()),
+        })
+        .insert(&pool)
+        .await
+        .unwrap();
+
+        let config = Config::new(CONFIG_FILE_PATH).unwrap();
+        let env = AppState::build_env(&config).unwrap();
+        let state = Arc::new(AppState {
+            config,
+            env,
+            db: pool,
+            feed_cache: Arc::new(RwLock::new(String::new())),
+            article_summaries_cache: Arc::new(RwLock::new(vec![])),
+            page_titles_cache: Arc::new(RwLock::new(vec![])),
+            article_content_cache: Arc::new(RwLock::new(HashMap::new())),
+            page_content_cache: Arc::new(RwLock::new(HashMap::new())),
+        });
+
+        // First view: cache miss → DB lookup → backfill.
+        let html = handler_custom_page(State(state.clone()), Path("cached page".to_string()))
+            .await
+            .unwrap()
+            .0;
+        assert!(html.contains("cached body"));
+        assert!(state
+            .page_content_cache
+            .read()
+            .await
+            .contains_key("cached page"));
+
+        // Clearing the cache must empty it.
+        state.clear_page_content_cache().await;
+        assert!(state.page_content_cache.read().await.is_empty());
+
+        // After clearing, a subsequent view still returns correct content via
+        // the DB fallback path (cache miss → re-query → re-backfill).
+        let html_again = handler_custom_page(State(state.clone()), Path("cached page".to_string()))
+            .await
+            .unwrap()
+            .0;
+        assert!(html_again.contains("cached body"));
+        assert!(state
+            .page_content_cache
+            .read()
+            .await
+            .contains_key("cached page"));
+    }
+
+    #[tokio::test]
+    async fn test_article_content_cache_get_insert_clear() {
+        // Pure in-memory exercise of the article content cache. Never queries
+        // the DB, so it runs without TEST_DATABASE_URL; the pool is a lazy
+        // placeholder that is never actually connected.
+        let config = Config::new(CONFIG_FILE_PATH).unwrap();
+        let env = AppState::build_env(&config).unwrap();
+        let state = AppState {
+            config,
+            env,
+            db: DbPool::Postgres(
+                sqlx::postgres::PgPoolOptions::new()
+                    .connect_lazy("postgres://__unused__:__unused__@__unused__:5432/__unused__")
+                    .expect("lazy placeholder pool should parse without connecting"),
+            ),
+            feed_cache: Arc::new(RwLock::new(String::new())),
+            article_summaries_cache: Arc::new(RwLock::new(vec![])),
+            page_titles_cache: Arc::new(RwLock::new(vec![])),
+            article_content_cache: Arc::new(RwLock::new(HashMap::new())),
+            page_content_cache: Arc::new(RwLock::new(HashMap::new())),
+        };
+
+        assert!(state.get_cached_article("missing").await.is_none());
+
+        // `Article`'s non-content fields are private to the models module, so
+        // build a default and set the public `content` field as the probe.
+        let mut article = Article::default();
+        article.content = "body".to_string();
+        state
+            .cache_article("hello".to_string(), article.clone())
+            .await;
+        assert_eq!(
+            state.get_cached_article("hello").await.map(|a| a.content),
+            Some("body".to_string())
+        );
+
+        state.clear_article_content_cache().await;
+        assert!(state.get_cached_article("hello").await.is_none());
+        assert!(state.article_content_cache.read().await.is_empty());
     }
 }
